@@ -38,6 +38,7 @@ Thumbs.db
 # Project specific
 *.log
 .env
+test_heroku.py
 
 # Distribution / packaging
 .Python
