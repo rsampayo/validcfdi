@@ -53,7 +53,7 @@ class CFDIRequest(BaseModel):
     total: str = Field(..., description="Monto total del CFDI", example="12000.00")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
                 "emisor_rfc": "CDZ050722LA9",
@@ -71,7 +71,7 @@ class CFDIResponse(BaseModel):
     raw_response: Optional[str] = Field(None, description="Respuesta XML completa")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "estado": "Vigente",
                 "es_cancelable": "Cancelable sin aceptación",
@@ -86,7 +86,7 @@ class BatchCFDIRequest(BaseModel):
     cfdis: List[CFDIRequest] = Field(..., description="Lista de CFDIs a verificar", min_items=1)
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "cfdis": [
                     {
@@ -114,7 +114,7 @@ class BatchCFDIResponse(BaseModel):
     results: List[CFDIBatchItem]
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "results": [
                     {
