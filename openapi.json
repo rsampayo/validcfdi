@@ -53,6 +53,53 @@
         ]
       }
     },
+    "/verify-cfdi-batch": {
+      "post": {
+        "tags": [
+          "CFDI"
+        ],
+        "summary": "Verify Cfdi Batch",
+        "description": "Verifica la validez de m\u00faltiples CFDIs con el SAT en una sola petici\u00f3n\n\nEsta API consulta el servicio oficial del SAT para verificar el estatus de m\u00faltiples CFDIs.\nCada CFDI se procesa de forma independiente y los resultados se devuelven en un \u00fanico response.\nRequiere autenticaci\u00f3n mediante Bearer token.\n\nReturns:\n    BatchCFDIResponse: Informaci\u00f3n sobre la validez de todos los CFDIs solicitados",
+        "operationId": "verify_cfdi_batch_verify_cfdi_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchCFDIRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchCFDIResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -531,6 +578,68 @@
   },
   "components": {
     "schemas": {
+      "BatchCFDIRequest": {
+        "properties": {
+          "cfdis": {
+            "items": {
+              "$ref": "#/components/schemas/CFDIRequest"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Cfdis",
+            "description": "Lista de CFDIs a verificar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cfdis"
+        ],
+        "title": "BatchCFDIRequest"
+      },
+      "BatchCFDIResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/CFDIBatchItem"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "title": "BatchCFDIResponse"
+      },
+      "CFDIBatchItem": {
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/CFDIRequest"
+          },
+          "response": {
+            "$ref": "#/components/schemas/CFDIResponse"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Error message if validation failed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request",
+          "response"
+        ],
+        "title": "CFDIBatchItem"
+      },
       "CFDIRequest": {
         "properties": {
           "uuid": {

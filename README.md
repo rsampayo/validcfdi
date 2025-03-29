@@ -9,6 +9,7 @@ Esta API proporciona un servicio REST que permite verificar el estado de CFDIs a
 ## Características
 
 - Verificación de CFDIs con el servicio oficial del SAT
+- Verificación por lotes de múltiples CFDIs en una sola petición
 - Autenticación mediante Bearer token
 - Gestión de tokens por superadministradores
 - Documentación automática con OpenAPI
@@ -148,6 +149,34 @@ curl -X 'POST' \
   "total": "12000.00"
 }'
 ```
+
+### Verificar Múltiples CFDIs (Procesamiento por Lotes)
+
+```bash
+curl -X 'POST' \
+  'https://tu-app.herokuapp.com/verify-cfdi-batch' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer tu-token-secreto' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "cfdis": [
+    {
+      "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+      "emisor_rfc": "CDZ050722LA9",
+      "receptor_rfc": "XIN06112344A",
+      "total": "12000.00"
+    },
+    {
+      "uuid": "9876543f-a01b-4ec6-8699-54c5f7e3b111", 
+      "emisor_rfc": "ABC123456789",
+      "receptor_rfc": "XYZ987654321",
+      "total": "5000.00"
+    }
+  ]
+}'
+```
+
+Esta funcionalidad permite verificar múltiples CFDIs en una sola petición, lo que reduce la latencia y el número de conexiones necesarias. Las validaciones se procesan en paralelo para optimizar el rendimiento. Cada CFDI incluido en la petición se valida independientemente, y el resultado incluye tanto la información de la solicitud como la respuesta.
 
 ### Verificar Estado del Servicio
 

@@ -8,6 +8,8 @@ from typing import Dict, Any, Optional, List
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+import asyncio
+import concurrent.futures
 
 # Load environment variables
 load_dotenv()
@@ -77,6 +79,71 @@ class CFDIResponse(BaseModel):
                 "codigo_estatus": "S - Comprobante obtenido satisfactoriamente.",
                 "validacion_efos": "200",
                 "raw_response": "<!-- XML response content -->"
+            }
+        }
+
+class BatchCFDIRequest(BaseModel):
+    cfdis: List[CFDIRequest] = Field(..., description="Lista de CFDIs a verificar", min_items=1)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "cfdis": [
+                    {
+                        "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+                        "emisor_rfc": "CDZ050722LA9",
+                        "receptor_rfc": "XIN06112344A",
+                        "total": "12000.00"
+                    },
+                    {
+                        "uuid": "9876543f-a01b-4ec6-8699-54c5f7e3b111",
+                        "emisor_rfc": "ABC123456789",
+                        "receptor_rfc": "XYZ987654321",
+                        "total": "5000.00"
+                    }
+                ]
+            }
+        }
+
+class CFDIBatchItem(BaseModel):
+    request: CFDIRequest
+    response: CFDIResponse
+    error: Optional[str] = Field(None, description="Error message if validation failed")
+
+class BatchCFDIResponse(BaseModel):
+    results: List[CFDIBatchItem]
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "results": [
+                    {
+                        "request": {
+                            "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+                            "emisor_rfc": "CDZ050722LA9",
+                            "receptor_rfc": "XIN06112344A",
+                            "total": "12000.00"
+                        },
+                        "response": {
+                            "estado": "Vigente",
+                            "es_cancelable": "Cancelable sin aceptación",
+                            "estatus_cancelacion": "No disponible",
+                            "codigo_estatus": "S - Comprobante obtenido satisfactoriamente.",
+                            "validacion_efos": "200"
+                        },
+                        "error": None
+                    },
+                    {
+                        "request": {
+                            "uuid": "invalid-uuid",
+                            "emisor_rfc": "INVALID",
+                            "receptor_rfc": "INVALID",
+                            "total": "0.00"
+                        },
+                        "response": {},
+                        "error": "Error during request to SAT service"
+                    }
+                ]
             }
         }
 
@@ -217,6 +284,72 @@ def verify_cfdi(
     )
     
     return CFDIResponse(**result)
+
+@app.post("/verify-cfdi-batch", response_model=BatchCFDIResponse, tags=["CFDI"])
+async def verify_cfdi_batch(
+    batch_data: BatchCFDIRequest,
+    token: str = Depends(verify_api_token)
+):
+    """
+    Verifica la validez de múltiples CFDIs con el SAT en una sola petición
+    
+    Esta API consulta el servicio oficial del SAT para verificar el estatus de múltiples CFDIs.
+    Cada CFDI se procesa de forma independiente y los resultados se devuelven en un único response.
+    Requiere autenticación mediante Bearer token.
+    
+    Returns:
+        BatchCFDIResponse: Información sobre la validez de todos los CFDIs solicitados
+    """
+    results = []
+    
+    # Process CFDIs in parallel using a thread pool
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all CFDI validation tasks to the thread pool
+        future_to_cfdi = {
+            executor.submit(
+                process_single_cfdi, 
+                cfdi
+            ): cfdi for cfdi in batch_data.cfdis
+        }
+        
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_cfdi):
+            cfdi = future_to_cfdi[future]
+            result = future.result()
+            results.append(result)
+    
+    return BatchCFDIResponse(results=results)
+
+def process_single_cfdi(cfdi: CFDIRequest) -> CFDIBatchItem:
+    """
+    Process a single CFDI and handle any exceptions
+    """
+    try:
+        result = consult_cfdi(
+            cfdi.uuid,
+            cfdi.emisor_rfc,
+            cfdi.receptor_rfc,
+            cfdi.total
+        )
+        return CFDIBatchItem(
+            request=cfdi,
+            response=CFDIResponse(**result),
+            error=None
+        )
+    except HTTPException as e:
+        # Handle HTTP exceptions from consult_cfdi function
+        return CFDIBatchItem(
+            request=cfdi,
+            response=CFDIResponse(),
+            error=e.detail
+        )
+    except Exception as e:
+        # Handle any other unexpected errors
+        return CFDIBatchItem(
+            request=cfdi,
+            response=CFDIResponse(),
+            error=f"Unexpected error: {str(e)}"
+        )
 
 @app.get("/health", tags=["Health"])
 def health_check():
