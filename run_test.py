@@ -16,10 +16,10 @@ ADMIN_PASSWORD = "password"
 
 # Test CFDI data
 TEST_CFDI = {
-    "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
-    "emisor_rfc": "CDZ050722LA9",
+    "uuid": "d0b6c9c7-289d-42d0-a1fa-734bcd48d893",
+    "emisor_rfc": "JIN920318BL0",
     "receptor_rfc": "XIN06112344A",
-    "total": "12000.00"
+    "total": "10207.98"
 }
 
 def print_header(text):
