@@ -26,13 +26,14 @@ def setup_database():
     try:
         logger.info("Creating database tables...")
         from database import create_tables, SessionLocal
+        from sqlalchemy import text
         
         # Create tables
         create_tables()
         
         # Test database connection
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         
         logger.info("✅ Database setup successful")
@@ -59,17 +60,13 @@ def setup_admin():
         # Import admin manager
         import admin_manager
         from database import SessionLocal
-        from schemas import SuperAdminCreate
         
         # Create admin user
         db = SessionLocal()
         try:
             admin = admin_manager.get_superadmin_by_username(db, username)
             if not admin:
-                admin_manager.create_superadmin(db, SuperAdminCreate(
-                    username=username,
-                    password=password
-                ))
+                admin_manager.create_superadmin(db, username, password)
                 logger.info(f"✅ Created superadmin user: {username}")
             else:
                 logger.info(f"✅ Superadmin user {username} already exists")
@@ -97,18 +94,23 @@ def setup_api_token():
             
         # Import token manager
         import token_manager
-        from database import SessionLocal
-        from schemas import TokenCreate
+        from database import SessionLocal, ApiToken
         
         # Create token
         db = SessionLocal()
         try:
             tokens = token_manager.get_all_tokens(db)
             if not tokens:
-                token_manager.create_token(db, TokenCreate(
+                # Create token manually since token_manager.create_token generates a new token
+                token = ApiToken(
+                    token=default_token,
                     description="Default API Token",
-                    token=default_token
-                ))
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(token)
+                db.commit()
                 logger.info("✅ Created default API token")
             else:
                 logger.info("✅ API tokens already exist")
