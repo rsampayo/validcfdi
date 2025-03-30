@@ -777,4 +777,8 @@ def check_rfc_in_efos(db: Session, rfc: str) -> Optional[Dict]:
         
     except Exception as e:
         logger.error(f"Error checking RFC in EFOS database: {str(e)}")
-        return None 
+        return None
+
+def get_efos_metadata(db):
+    """Get the EFOS metadata record"""
+    return db.query(EfosMetadata).first() 
