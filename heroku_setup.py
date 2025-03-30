@@ -13,6 +13,12 @@ import sys
 import logging
 import time
 from datetime import datetime
+from database import create_tables, get_db
+from admin_manager import create_superadmin, get_superadmin_by_username
+from token_manager import create_token, get_all_tokens
+from efos_manager import get_efos_metadata
+from schemas import SuperAdminCreate, TokenCreate
+from migrations import run_migrations
 
 # Configure logging
 logging.basicConfig(
@@ -22,185 +28,161 @@ logging.basicConfig(
 logger = logging.getLogger("heroku_setup")
 
 def setup_database():
-    """Create database tables"""
+    """Set up the database tables"""
+    start_time = time.time()
+    logger.info("Running Database setup...")
+    
     try:
-        logger.info("Creating database tables...")
-        from database import create_tables, SessionLocal
-        from sqlalchemy import text
+        # Run migrations first
+        logger.info("Running database migrations...")
+        if not run_migrations():
+            logger.error("❌ Database migrations failed")
+            return False
+        logger.info("✅ Database migrations completed")
         
         # Create tables
+        logger.info("Creating database tables...")
         create_tables()
-        
-        # Test database connection
-        db = SessionLocal()
-        db.execute(text("SELECT 1"))
-        db.close()
-        
-        logger.info("✅ Database setup successful")
+        duration = time.time() - start_time
+        logger.info(f"✅ Database setup successful")
+        logger.info(f"✅ Database setup completed in {duration:.2f} seconds")
         return True
     except Exception as e:
         logger.error(f"❌ Database setup failed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Database setup failed after {time.time() - start_time:.2f} seconds")
         return False
 
 def setup_admin():
-    """Set up initial admin user"""
+    """Set up the initial admin user"""
+    start_time = time.time()
+    logger.info("Running Admin setup...")
+    
     try:
-        logger.info("Setting up initial admin user...")
-        
-        # Check if admin credentials are configured
+        # Get admin credentials from environment
         username = os.environ.get("SUPERADMIN_USERNAME")
         password = os.environ.get("SUPERADMIN_PASSWORD")
         
         if not username or not password:
-            logger.warning("⚠️ SUPERADMIN_USERNAME or SUPERADMIN_PASSWORD not set, skipping admin setup")
+            logger.warning("⚠️ No admin credentials provided, skipping admin setup")
+            return True
+        
+        logger.info("Setting up initial admin user...")
+        db = next(get_db())
+        try:
+            # Check if admin exists
+            admin = get_superadmin_by_username(db, username)
+            if not admin:
+                # Create admin if doesn't exist
+                admin = create_superadmin(db, SuperAdminCreate(
+                    username=username,
+                    password=password
+                ))
+                logger.info(f"✅ Created admin user: {username}")
+            else:
+                logger.info(f"✅ Admin user already exists: {username}")
+            
+            duration = time.time() - start_time
+            logger.info(f"✅ Admin setup completed in {duration:.2f} seconds")
             return True
             
-        # Import admin manager
-        import admin_manager
-        from database import SessionLocal
-        
-        # Create admin user
-        db = SessionLocal()
-        try:
-            admin = admin_manager.get_superadmin_by_username(db, username)
-            if not admin:
-                admin_manager.create_superadmin(db, username, password)
-                logger.info(f"✅ Created superadmin user: {username}")
-            else:
-                logger.info(f"✅ Superadmin user {username} already exists")
         finally:
             db.close()
             
-        return True
     except Exception as e:
         logger.error(f"❌ Admin setup failed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Admin setup failed after {time.time() - start_time:.2f} seconds")
         return False
 
 def setup_api_token():
-    """Set up default API token"""
+    """Set up the default API token"""
+    start_time = time.time()
+    logger.info("Running API token setup...")
+    
     try:
-        logger.info("Setting up default API token...")
+        # Get token from environment
+        token = os.environ.get("DEFAULT_API_TOKEN")
         
-        # Check if token is configured
-        default_token = os.environ.get("DEFAULT_API_TOKEN")
-        
-        if not default_token:
-            logger.warning("⚠️ DEFAULT_API_TOKEN not set, skipping token setup")
+        if not token:
+            logger.warning("⚠️ No default API token provided, skipping token setup")
             return True
-            
-        # Import token manager
-        import token_manager
-        from database import SessionLocal, ApiToken
         
-        # Create token
-        db = SessionLocal()
+        logger.info("Setting up default API token...")
+        db = next(get_db())
         try:
-            tokens = token_manager.get_all_tokens(db)
+            # Check if any tokens exist
+            tokens = get_all_tokens(db)
             if not tokens:
-                # Create token manually since token_manager.create_token generates a new token
-                token = ApiToken(
-                    token=default_token,
+                # Create default token if no tokens exist
+                create_token(db, TokenCreate(
                     description="Default API Token",
-                    is_active=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(token)
-                db.commit()
+                    token=token
+                ))
                 logger.info("✅ Created default API token")
             else:
                 logger.info("✅ API tokens already exist")
+            
+            duration = time.time() - start_time
+            logger.info(f"✅ API token setup completed in {duration:.2f} seconds")
+            return True
+            
         finally:
             db.close()
             
-        return True
     except Exception as e:
         logger.error(f"❌ API token setup failed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ API token setup failed after {time.time() - start_time:.2f} seconds")
         return False
 
 def schedule_efos_download():
-    """Queue initial EFOS data download"""
+    """Schedule the initial EFOS data download"""
+    start_time = time.time()
+    logger.info("Running EFOS download setup...")
+    
     try:
         logger.info("Scheduling initial EFOS data download...")
-        
-        # Import required modules
-        from database import SessionLocal
-        import efos_manager
-        
-        # Check if EFOS records already exist
-        db = SessionLocal()
+        db = next(get_db())
         try:
-            # Check if we already have EFOS metadata
-            from database import EfosMetadata
-            metadata = db.query(EfosMetadata).first()
+            # Check if EFOS metadata exists
+            metadata = get_efos_metadata(db)
+            if not metadata:
+                logger.info("✅ No EFOS metadata found, worker will handle initial download")
+            else:
+                logger.info("✅ EFOS metadata exists, worker will handle updates")
             
-            if metadata:
-                logger.info("✅ EFOS metadata already exists, skipping initial download")
-                logger.info(f"   Last updated: {metadata.last_updated}")
-                logger.info(f"   Last checked: {metadata.last_checked}")
-                return True
-                
-            # No metadata exists, schedule initial download
-            # We don't want to block the Heroku startup, so we'll just ensure tables exist
-            # and let the worker handle the download
-            logger.info("✅ EFOS tables ready for worker to download data")
+            duration = time.time() - start_time
+            logger.info(f"✅ EFOS download setup completed in {duration:.2f} seconds")
+            return True
             
         finally:
             db.close()
             
-        return True
     except Exception as e:
-        logger.error(f"❌ EFOS setup failed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ EFOS download setup failed: {str(e)}")
+        logger.error(f"❌ EFOS download setup failed after {time.time() - start_time:.2f} seconds")
         return False
 
 def main():
-    """Run all setup steps"""
+    """Main setup function"""
+    start_time = time.time()
     logger.info("===================================")
     logger.info("Starting Heroku setup")
     logger.info(f"Environment: {os.environ.get('ENVIRONMENT', 'production')}")
-    logger.info(f"Database URL: {os.environ.get('DATABASE_URL', 'Not set')[:20]}...")
+    logger.info(f"Database URL: {os.environ.get('DATABASE_URL', '').split('@')[1] if '@' in os.environ.get('DATABASE_URL', '') else '...'}")
     logger.info("===================================")
     
-    start_time = time.time()
+    # Run all setup steps
+    success = all([
+        setup_database(),
+        setup_admin(),
+        setup_api_token(),
+        schedule_efos_download()
+    ])
     
-    # Run setup steps
-    steps = [
-        ("Database setup", setup_database),
-        ("Admin setup", setup_admin),
-        ("API token setup", setup_api_token),
-        ("EFOS download setup", schedule_efos_download)
-    ]
-    
-    success = True
-    
-    for name, func in steps:
-        step_start = time.time()
-        logger.info(f"Running {name}...")
-        
-        step_success = func()
-        step_time = time.time() - step_start
-        
-        if step_success:
-            logger.info(f"✅ {name} completed in {step_time:.2f} seconds")
-        else:
-            logger.error(f"❌ {name} failed after {step_time:.2f} seconds")
-            success = False
-    
-    # Log completion
-    total_time = time.time() - start_time
+    duration = time.time() - start_time
     if success:
-        logger.info(f"✅ Heroku setup completed successfully in {total_time:.2f} seconds")
+        logger.info(f"✅ Heroku setup completed successfully in {duration:.2f} seconds")
     else:
-        logger.error(f"❌ Heroku setup completed with errors in {total_time:.2f} seconds")
-        sys.exit(1)
+        logger.error(f"❌ Heroku setup completed with errors in {duration:.2f} seconds")
 
 if __name__ == "__main__":
     main() 
