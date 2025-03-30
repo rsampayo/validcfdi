@@ -38,7 +38,9 @@ def get_db_session():
 def update_efos_database_job():
     """Job to update the EFOS database"""
     job_start_time = datetime.now()
-    logger.info(f"EFOS database check job started at {job_start_time.isoformat()}")
+    start_msg = f"EFOS database check job started at {job_start_time.isoformat()}"
+    logger.info(start_msg)
+    print(start_msg)
     
     try:
         # Create database session
@@ -49,23 +51,37 @@ def update_efos_database_job():
         
         # Log result based on status
         if result.get("status") == "success":
-            logger.info(f"✅ EFOS database update COMPLETED SUCCESSFULLY - File has changed")
-            logger.info(f"Processed {result.get('records_processed', 0)} records, imported {result.get('records_imported', 0)} records in {result.get('processing_time_seconds', 0):.2f} seconds.")
+            msg = f"✅ EFOS database update COMPLETED SUCCESSFULLY - File has changed"
+            logger.info(msg)
+            print(msg)
+            details = f"Processed {result.get('records_processed', 0)} records, imported {result.get('records_imported', 0)} records in {result.get('processing_time_seconds', 0):.2f} seconds."
+            logger.info(details)
+            print(details)
         elif result.get("status") == "unchanged":
-            logger.info(f"ℹ️ EFOS database update SKIPPED - File has not changed since last update")
-            logger.info(f"Check completed in {result.get('processing_time_seconds', 0):.2f} seconds.")
+            msg = f"ℹ️ EFOS database update SKIPPED - File has not changed since last update"
+            logger.info(msg)
+            print(msg)
+            details = f"Check completed in {result.get('processing_time_seconds', 0):.2f} seconds."
+            logger.info(details)
+            print(details)
         else:
-            logger.error(f"❌ EFOS database update FAILED: {result.get('error_message', 'Unknown error')}")
+            msg = f"❌ EFOS database update FAILED: {result.get('error_message', 'Unknown error')}"
+            logger.error(msg)
+            print(msg)
             
     except Exception as e:
-        logger.error(f"Error in EFOS database update job: {str(e)}")
+        error_msg = f"Error in EFOS database update job: {str(e)}"
+        logger.error(error_msg)
+        print(error_msg)
     finally:
         # Close database session
         db.close()
         
     job_end_time = datetime.now()
     job_duration = (job_end_time - job_start_time).total_seconds()
-    logger.info(f"EFOS database check job finished at {job_end_time.isoformat()} (took {job_duration:.2f} seconds)")
+    end_msg = f"EFOS database check job finished at {job_end_time.isoformat()} (took {job_duration:.2f} seconds)"
+    logger.info(end_msg)
+    print(end_msg)
 
 def run_threaded(job_func):
     """Run a job in a separate thread"""
@@ -86,30 +102,50 @@ def setup_schedule():
 
 def run_scheduler():
     """Main function to run the scheduler"""
-    logger.info("=========================================")
-    logger.info("Starting EFOS scheduler")
-    logger.info(f"Will check for updates every {UPDATE_INTERVAL_DAYS} day(s) at {UPDATE_TIME}")
-    logger.info("=========================================")
+    header = "========================================="
+    logger.info(header)
+    print(header)
+    
+    start_msg = "Starting EFOS scheduler"
+    logger.info(start_msg)
+    print(start_msg)
+    
+    config_msg = f"Will check for updates every {UPDATE_INTERVAL_DAYS} day(s) at {UPDATE_TIME}"
+    logger.info(config_msg)
+    print(config_msg)
+    
+    logger.info(header)
+    print(header)
     
     # Setup the job schedule
     setup_schedule()
     
     # Run the initial job immediately
-    logger.info("Running initial EFOS database update")
+    init_msg = "Running initial EFOS database update"
+    logger.info(init_msg)
+    print(init_msg)
     run_threaded(update_efos_database_job)
     
     # Run the scheduler loop
-    logger.info("Running scheduler loop")
+    loop_msg = "Running scheduler loop"
+    logger.info(loop_msg)
+    print(loop_msg)
     try:
         while True:
             schedule.run_pending()
             time.sleep(60)  # Check for pending jobs every minute
     except KeyboardInterrupt:
-        logger.info("Scheduler stopped by user")
+        stop_msg = "Scheduler stopped by user"
+        logger.info(stop_msg)
+        print(stop_msg)
     except Exception as e:
-        logger.error(f"Scheduler error: {str(e)}")
+        error_msg = f"Scheduler error: {str(e)}"
+        logger.error(error_msg)
+        print(error_msg)
     
-    logger.info("EFOS scheduler stopped")
+    end_msg = "EFOS scheduler stopped"
+    logger.info(end_msg)
+    print(end_msg)
 
 if __name__ == "__main__":
     # Create database tables if they don't exist
