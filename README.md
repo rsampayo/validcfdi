@@ -12,6 +12,8 @@ Esta API proporciona un servicio REST que permite verificar el estado de CFDIs a
 - Verificación por lotes de múltiples CFDIs en una sola petición
 - Autenticación mediante Bearer token
 - Gestión de tokens por superadministradores
+- Base de datos local de empresas EFOS (Lista 69-B)
+- Verificación automática de RFCs contra lista de EFOS
 - Documentación automática con OpenAPI
 - Base de datos PostgreSQL (con SQLite como alternativa para desarrollo)
 - Fácil despliegue en Heroku
@@ -186,6 +188,72 @@ curl -X 'GET' \
   -H 'accept: application/json'
 ```
 
+## Funcionalidad EFOS (Lista 69-B del SAT)
+
+La API incluye funcionalidad para descargar, procesar y consultar la lista oficial de Empresas que Facturan Operaciones Simuladas (EFOS) publicada por el SAT en el Artículo 69-B del Código Fiscal de la Federación.
+
+### Características de la Funcionalidad EFOS
+
+- Descarga automática de la lista oficial del SAT
+- Limpieza y procesamiento del archivo CSV
+- Almacenamiento de datos en base de datos local
+- Actualización programada y automática
+- Verificación de RFCs contra la lista de EFOS
+- Integración con la verificación de CFDI para alertar sobre emisores o receptores en la lista EFOS
+
+### Verificar un RFC contra la Lista EFOS
+
+```bash
+curl -X 'POST' \
+  'https://tu-app.herokuapp.com/check-rfc-efos' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer tu-token-secreto' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "rfc": "RFC123456ABC"
+}'
+```
+
+### Actualizar Manualmente la Base de Datos EFOS
+
+Este endpoint está protegido y solo puede ser accedido por superadministradores:
+
+```bash
+curl -X 'POST' \
+  'https://tu-app.herokuapp.com/update-efos-database' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Basic YWRtaW46cGFzc3dvcmQ=' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "run_in_background": true
+}'
+```
+
+### Programar Actualizaciones Automáticas
+
+Para mantener la base de datos EFOS actualizada, puedes ejecutar el programador en segundo plano:
+
+```bash
+python efos_scheduler.py
+```
+
+Esto ejecutará un proceso que actualizará la base de datos EFOS según la configuración especificada en el archivo `.env`.
+
+### Configuración EFOS
+
+En el archivo `.env`, puedes configurar las siguientes opciones:
+
+```
+# EFOS Settings
+EFOS_CSV_URL=http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv
+EFOS_UPDATE_INTERVAL_DAYS=1
+EFOS_UPDATE_TIME=03:00
+```
+
+- `EFOS_CSV_URL`: URL del archivo CSV oficial del SAT
+- `EFOS_UPDATE_INTERVAL_DAYS`: Frecuencia de actualización en días
+- `EFOS_UPDATE_TIME`: Hora del día para realizar la actualización (formato 24h)
+
 ## Despliegue en Heroku
 
 1. Crear una cuenta en Heroku (si no la tienes)
@@ -210,6 +278,9 @@ heroku config:set USE_SQLITE=false
 # Para crear un superadmin inicial
 heroku config:set SUPERADMIN_USERNAME=admin
 heroku config:set SUPERADMIN_PASSWORD=password-seguro
+# Configuración EFOS
+heroku config:set EFOS_UPDATE_INTERVAL_DAYS=1
+heroku config:set EFOS_UPDATE_TIME=03:00
 ```
 7. Desplegar la aplicación:
 ```bash
@@ -218,6 +289,14 @@ git push heroku main
 8. Crear el superadmin inicial:
 ```bash
 heroku run python init_admin.py
+```
+9. Iniciar una actualización inicial de la base de datos EFOS:
+```bash
+heroku run python -c "from database import SessionLocal; import efos_manager; efos_manager.update_efos_database(SessionLocal())"
+```
+10. Configurar el programador para actualizaciones automáticas (requiere un dyno worker):
+```bash
+heroku ps:scale worker=1
 ```
 
 ## Documentación API

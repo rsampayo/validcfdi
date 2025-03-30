@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 import requests
@@ -19,6 +19,7 @@ from database import get_db, create_tables
 from security import verify_api_token, verify_superadmin
 import token_manager
 import admin_manager
+import efos_manager
 from schemas import (
     TokenCreate, TokenUpdate, TokenResponse, TokenList, 
     SuperAdminCreate, SuperAdminUpdate, SuperAdminResponse,
@@ -68,6 +69,8 @@ class CFDIResponse(BaseModel):
     estatus_cancelacion: Optional[str] = Field(None, description="Estatus de cancelación")
     codigo_estatus: Optional[str] = Field(None, description="Código de estatus")
     validacion_efos: Optional[str] = Field(None, description="Validación EFOS")
+    efos_emisor: Optional[Dict[str, Any]] = Field(None, description="Información de EFOS para el emisor")
+    efos_receptor: Optional[Dict[str, Any]] = Field(None, description="Información de EFOS para el receptor")
     raw_response: Optional[str] = Field(None, description="Respuesta XML completa")
     
     class Config:
@@ -78,6 +81,8 @@ class CFDIResponse(BaseModel):
                 "estatus_cancelacion": "No disponible",
                 "codigo_estatus": "S - Comprobante obtenido satisfactoriamente.",
                 "validacion_efos": "200",
+                "efos_emisor": None,
+                "efos_receptor": None,
                 "raw_response": "<!-- XML response content -->"
             }
         }
@@ -129,7 +134,9 @@ class BatchCFDIResponse(BaseModel):
                             "es_cancelable": "Cancelable sin aceptación",
                             "estatus_cancelacion": "No disponible",
                             "codigo_estatus": "S - Comprobante obtenido satisfactoriamente.",
-                            "validacion_efos": "200"
+                            "validacion_efos": "200",
+                            "efos_emisor": None,
+                            "efos_receptor": None
                         },
                         "error": None
                     },
@@ -147,8 +154,22 @@ class BatchCFDIResponse(BaseModel):
             }
         }
 
+# Models for EFOS endpoints
+class RfcCheckRequest(BaseModel):
+    rfc: str = Field(..., description="RFC a consultar", example="XYZ123456789")
+
+class RfcCheckResponse(BaseModel):
+    rfc: str = Field(..., description="RFC consultado")
+    is_in_efos_list: bool = Field(..., description="Indica si el RFC está en la lista EFOS")
+    efos_data: Optional[Dict[str, Any]] = Field(None, description="Datos EFOS del RFC (si está en la lista)")
+
+class EfosUpdateResponse(BaseModel):
+    status: str = Field(..., description="Estado de la actualización")
+    message: str = Field(..., description="Mensaje de la actualización")
+    details: Optional[Dict[str, Any]] = Field(None, description="Detalles de la actualización")
+
 # CFDI verification function
-def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str) -> Dict[str, Any]:
+def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str, db: Session = None) -> Dict[str, Any]:
     """
     Consulta el estatus de un CFDI en el servicio del SAT
     
@@ -157,6 +178,7 @@ def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str) -> D
         emisor_rfc: RFC del emisor
         receptor_rfc: RFC del receptor
         total: Monto total del CFDI
+        db: Optional database session for EFOS validation
         
     Returns:
         Diccionario con la información del estatus del CFDI
@@ -188,6 +210,8 @@ def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str) -> D
         "estatus_cancelacion": None,
         "codigo_estatus": None,
         "validacion_efos": None,
+        "efos_emisor": None,
+        "efos_receptor": None,
         "raw_response": None
     }
     
@@ -219,6 +243,18 @@ def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str) -> D
                         elif tag_name == 'ValidacionEFOS':
                             result["validacion_efos"] = elem.text
                 
+                # Check EFOS status if database session is provided
+                if db:
+                    # Check emisor RFC in EFOS list
+                    emisor_efos = efos_manager.check_rfc_in_efos(db, emisor_rfc)
+                    if emisor_efos:
+                        result["efos_emisor"] = emisor_efos
+                        
+                    # Check receptor RFC in EFOS list
+                    receptor_efos = efos_manager.check_rfc_in_efos(db, receptor_rfc)
+                    if receptor_efos:
+                        result["efos_receptor"] = receptor_efos
+                
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -249,119 +285,194 @@ async def startup_event():
         # Add default token if no tokens exist
         tokens = token_manager.get_all_tokens(db)
         if not tokens:
-            token_manager.create_token(db, description="Default API token")
+            token_manager.create_token(db, TokenCreate(
+                description="Default API Token",
+                token=DEFAULT_API_TOKEN
+            ))
+            print("Created default API token")
             
-        # Create initial superadmin if credentials are provided
+        # Add superadmin if specified in environment variables
         if SUPERADMIN_USERNAME and SUPERADMIN_PASSWORD:
-            try:
-                admin_manager.create_superadmin(db, SUPERADMIN_USERNAME, SUPERADMIN_PASSWORD)
-            except HTTPException:
-                # Superadmin already exists, ignore
-                pass
+            admin = admin_manager.get_superadmin_by_username(db, SUPERADMIN_USERNAME)
+            if not admin:
+                admin_manager.create_superadmin(db, SuperAdminCreate(
+                    username=SUPERADMIN_USERNAME,
+                    password=SUPERADMIN_PASSWORD
+                ))
+                print(f"Created superadmin user: {SUPERADMIN_USERNAME}")
     finally:
         db.close()
 
-# API Endpoints
+# CFDI verification endpoint
 @app.post("/verify-cfdi", response_model=CFDIResponse, tags=["CFDI"])
 def verify_cfdi(
     cfdi_data: CFDIRequest, 
-    token: str = Depends(verify_api_token)
+    token: str = Depends(verify_api_token),
+    db: Session = Depends(get_db)
 ):
     """
-    Verifica la validez de un CFDI con el SAT
-    
-    Esta API consulta el servicio oficial del SAT para verificar el estatus de un CFDI.
-    Requiere autenticación mediante Bearer token.
-    
-    Returns:
-        CFDIResponse: Información sobre la validez del CFDI
-    """
-    result = consult_cfdi(
-        cfdi_data.uuid,
-        cfdi_data.emisor_rfc,
-        cfdi_data.receptor_rfc,
-        cfdi_data.total
-    )
-    
-    return CFDIResponse(**result)
-
-@app.post("/verify-cfdi-batch", response_model=BatchCFDIResponse, tags=["CFDI"])
-async def verify_cfdi_batch(
-    batch_data: BatchCFDIRequest,
-    token: str = Depends(verify_api_token)
-):
-    """
-    Verifica la validez de múltiples CFDIs con el SAT en una sola petición
-    
-    Esta API consulta el servicio oficial del SAT para verificar el estatus de múltiples CFDIs.
-    Cada CFDI se procesa de forma independiente y los resultados se devuelven en un único response.
-    Requiere autenticación mediante Bearer token.
-    
-    Returns:
-        BatchCFDIResponse: Información sobre la validez de todos los CFDIs solicitados
-    """
-    results = []
-    
-    # Process CFDIs in parallel using a thread pool
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        # Submit all CFDI validation tasks to the thread pool
-        future_to_cfdi = {
-            executor.submit(
-                process_single_cfdi, 
-                cfdi
-            ): cfdi for cfdi in batch_data.cfdis
-        }
-        
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(future_to_cfdi):
-            cfdi = future_to_cfdi[future]
-            result = future.result()
-            results.append(result)
-    
-    return BatchCFDIResponse(results=results)
-
-def process_single_cfdi(cfdi: CFDIRequest) -> CFDIBatchItem:
-    """
-    Process a single CFDI and handle any exceptions
+    Verifica la validez de un CFDI consultando el servicio del SAT
     """
     try:
         result = consult_cfdi(
-            cfdi.uuid,
-            cfdi.emisor_rfc,
-            cfdi.receptor_rfc,
-            cfdi.total
+            cfdi_data.uuid, 
+            cfdi_data.emisor_rfc, 
+            cfdi_data.receptor_rfc, 
+            cfdi_data.total,
+            db
         )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+# CFDI batch verification endpoint
+@app.post("/verify-cfdi-batch", response_model=BatchCFDIResponse, tags=["CFDI"])
+async def verify_cfdi_batch(
+    batch_data: BatchCFDIRequest,
+    token: str = Depends(verify_api_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica la validez de múltiples CFDIs consultando el servicio del SAT
+    """
+    # Limit the number of concurrent requests
+    MAX_WORKERS = os.environ.get("MAX_WORKERS", 5)
+    
+    # Results will be stored here
+    results = []
+    
+    # Process CFDIs in batches
+    with concurrent.futures.ThreadPoolExecutor(max_workers=int(MAX_WORKERS)) as executor:
+        # Create future objects for each CFDI request
+        future_to_cfdi = {
+            executor.submit(process_single_cfdi, cfdi, db): cfdi 
+            for cfdi in batch_data.cfdis
+        }
+        
+        # Wait for all futures to complete
+        for future in concurrent.futures.as_completed(future_to_cfdi):
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                cfdi = future_to_cfdi[future]
+                results.append(CFDIBatchItem(
+                    request=cfdi,
+                    response=CFDIResponse(),
+                    error=str(e)
+                ))
+    
+    return BatchCFDIResponse(results=results)
+
+# Helper function to process a single CFDI in the batch
+def process_single_cfdi(cfdi: CFDIRequest, db: Session = None) -> CFDIBatchItem:
+    """Process a single CFDI and return the result"""
+    try:
+        result = consult_cfdi(
+            cfdi.uuid, 
+            cfdi.emisor_rfc, 
+            cfdi.receptor_rfc, 
+            cfdi.total,
+            db
+        )
+        
         return CFDIBatchItem(
             request=cfdi,
             response=CFDIResponse(**result),
             error=None
         )
-    except HTTPException as e:
-        # Handle HTTP exceptions from consult_cfdi function
-        return CFDIBatchItem(
-            request=cfdi,
-            response=CFDIResponse(),
-            error=e.detail
-        )
     except Exception as e:
-        # Handle any other unexpected errors
+        # Return the error
         return CFDIBatchItem(
             request=cfdi,
             response=CFDIResponse(),
-            error=f"Unexpected error: {str(e)}"
+            error=str(e)
         )
 
+# Health check endpoint
 @app.get("/health", tags=["Health"])
 def health_check():
     """
-    Simple health check endpoint
-    
-    Permite verificar si el servicio está funcionando correctamente.
-    Este endpoint no requiere autenticación.
+    Simple health check endpoint to verify the API is running
     """
-    return {"status": "healthy"}
+    return {
+        "status": "ok",
+        "version": app.version
+    }
 
-# Token Management Endpoints (Superadmin only)
+# EFOS check endpoint
+@app.post("/check-rfc-efos", response_model=RfcCheckResponse, tags=["EFOS"])
+def check_rfc_efos(
+    rfc_data: RfcCheckRequest,
+    token: str = Depends(verify_api_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica si un RFC está en la lista de EFOS del SAT
+    """
+    try:
+        # Check if RFC is in EFOS list
+        efos_data = efos_manager.check_rfc_in_efos(db, rfc_data.rfc)
+        
+        return {
+            "rfc": rfc_data.rfc,
+            "is_in_efos_list": efos_data is not None,
+            "efos_data": efos_data
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking RFC in EFOS list: {str(e)}"
+        )
+
+# EFOS database update endpoint
+@app.post("/update-efos-database", response_model=EfosUpdateResponse, tags=["EFOS"])
+def update_efos_database(
+    background_tasks: BackgroundTasks,
+    run_in_background: bool = True,
+    superadmin = Depends(verify_superadmin),
+    db: Session = Depends(get_db)
+):
+    """
+    Actualiza la base de datos de EFOS descargando el archivo CSV del SAT
+    
+    El proceso puede ejecutarse en segundo plano o en primer plano.
+    """
+    try:
+        if run_in_background:
+            # Schedule update in background
+            background_tasks.add_task(efos_manager.update_efos_database, db)
+            return {
+                "status": "processing",
+                "message": "EFOS database update started in background",
+                "details": None
+            }
+        else:
+            # Run update in foreground
+            result = efos_manager.update_efos_database(db)
+            
+            status_msg = "success" if result.get("status") == "success" else "error"
+            message = (
+                f"EFOS database updated successfully. Imported {result.get('records_imported', 0)} records."
+                if status_msg == "success"
+                else f"Error updating EFOS database: {result.get('error_message', 'Unknown error')}"
+            )
+            
+            return {
+                "status": status_msg,
+                "message": message,
+                "details": result
+            }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating EFOS database: {str(e)}"
+        )
+
+# Admin token endpoints
 @app.post("/admin/tokens", response_model=TokenResponse, tags=["Admin"])
 def create_api_token(
     token_data: TokenCreate,
@@ -370,10 +481,14 @@ def create_api_token(
 ):
     """
     Create a new API token
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
-    return token_manager.create_token(db, token_data.description)
+    try:
+        return token_manager.create_token(db, token_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @app.get("/admin/tokens", response_model=TokenList, tags=["Admin"])
 def list_api_tokens(
@@ -384,11 +499,12 @@ def list_api_tokens(
 ):
     """
     List all API tokens
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
     tokens = token_manager.get_all_tokens(db, skip, limit)
-    return {"tokens": tokens, "total": len(tokens)}
+    return {
+        "tokens": tokens,
+        "total": len(tokens)
+    }
 
 @app.get("/admin/tokens/{token_id}", response_model=TokenResponse, tags=["Admin"])
 def get_api_token(
@@ -398,12 +514,13 @@ def get_api_token(
 ):
     """
     Get a specific API token by ID
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
     token = token_manager.get_token_by_id(db, token_id)
     if not token:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
     return token
 
 @app.put("/admin/tokens/{token_id}", response_model=TokenResponse, tags=["Admin"])
@@ -415,10 +532,14 @@ def update_api_token(
 ):
     """
     Update an API token
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
-    return token_manager.update_token(db, token_id, token_data.description, token_data.is_active)
+    updated_token = token_manager.update_token(db, token_id, token_data)
+    if not updated_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
+    return updated_token
 
 @app.delete("/admin/tokens/{token_id}", response_model=MessageResponse, tags=["Admin"])
 def delete_api_token(
@@ -428,10 +549,13 @@ def delete_api_token(
 ):
     """
     Delete an API token
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
-    token_manager.delete_token(db, token_id)
+    result = token_manager.delete_token(db, token_id)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
     return {"message": "Token deleted successfully"}
 
 @app.post("/admin/tokens/{token_id}/regenerate", response_model=TokenResponse, tags=["Admin"])
@@ -441,14 +565,16 @@ def regenerate_api_token(
     db: Session = Depends(get_db)
 ):
     """
-    Regenerate an API token
-    
-    Creates a new token value for the existing token ID.
-    Requires superadmin authentication using HTTP Basic auth.
+    Regenerate an API token (create a new token value)
     """
-    return token_manager.regenerate_token(db, token_id)
+    regenerated_token = token_manager.regenerate_token(db, token_id)
+    if not regenerated_token:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
+    return regenerated_token
 
-# Superadmin Management Endpoints (Superadmin only)
 @app.post("/admin/superadmins", response_model=SuperAdminResponse, tags=["Admin"])
 def create_new_superadmin(
     admin_data: SuperAdminCreate,
@@ -456,11 +582,15 @@ def create_new_superadmin(
     db: Session = Depends(get_db)
 ):
     """
-    Create a new superadmin
-    
-    Requires existing superadmin authentication using HTTP Basic auth.
+    Create a new superadmin user
     """
-    return admin_manager.create_superadmin(db, admin_data.username, admin_data.password)
+    try:
+        return admin_manager.create_superadmin(db, admin_data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @app.put("/admin/superadmins/{username}/password", response_model=MessageResponse, tags=["Admin"])
 def update_admin_password(
@@ -471,12 +601,13 @@ def update_admin_password(
 ):
     """
     Update a superadmin's password
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
-    admin_manager.update_superadmin_password(
-        db, username, password_data.current_password, password_data.new_password
-    )
+    result = admin_manager.update_superadmin_password(db, username, password_data.password)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Superadmin not found"
+        )
     return {"message": "Password updated successfully"}
 
 @app.delete("/admin/superadmins/{username}", response_model=MessageResponse, tags=["Admin"])
@@ -487,8 +618,11 @@ def deactivate_admin_account(
 ):
     """
     Deactivate a superadmin account
-    
-    Requires superadmin authentication using HTTP Basic auth.
     """
-    admin_manager.deactivate_superadmin(db, username)
+    result = admin_manager.deactivate_superadmin(db, username)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Superadmin not found"
+        )
     return {"message": "Superadmin deactivated successfully"} 

@@ -61,6 +61,34 @@ class SuperAdmin(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+# Model for EFOS records (Empresas que Facturan Operaciones Simuladas)
+class EfosRecord(Base):
+    __tablename__ = "efos_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    numero = Column(Integer, nullable=True)
+    rfc = Column(String, index=True, nullable=False)
+    nombre_contribuyente = Column(String, nullable=False)
+    situacion_contribuyente = Column(String, nullable=True)
+    numero_fecha_oficio_global_presuncion_sat = Column(String, nullable=True)
+    publicacion_pagina_sat_presuntos = Column(String, nullable=True)
+    numero_fecha_oficio_global_presuncion_dof = Column(String, nullable=True)
+    publicacion_dof_presuntos = Column(String, nullable=True)
+    numero_fecha_oficio_global_contribuyentes_desvirtuaron_sat = Column(String, nullable=True)
+    publicacion_pagina_sat_desvirtuados = Column(String, nullable=True)
+    numero_fecha_oficio_global_contribuyentes_desvirtuaron_dof = Column(String, nullable=True)
+    publicacion_dof_desvirtuados = Column(String, nullable=True)
+    numero_fecha_oficio_global_definitivos_sat = Column(String, nullable=True)
+    publicacion_pagina_sat_definitivos = Column(String, nullable=True)
+    numero_fecha_oficio_global_definitivos_dof = Column(String, nullable=True)
+    publicacion_dof_definitivos = Column(String, nullable=True)
+    numero_fecha_oficio_global_sentencia_favorable_sat = Column(String, nullable=True)
+    publicacion_pagina_sat_sentencia_favorable = Column(String, nullable=True)
+    numero_fecha_oficio_global_sentencia_favorable_dof = Column(String, nullable=True)
+    publicacion_dof_sentencia_favorable = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
 # Function to create tables
 def create_tables():
