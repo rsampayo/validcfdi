@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 import requests
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -13,6 +13,7 @@ import concurrent.futures
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import SQLAlchemyError
+from contextlib import asynccontextmanager
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +30,37 @@ from schemas import (
     MessageResponse
 )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create database tables and initial superadmin
+    create_tables()
+    
+    # Create default API token if it doesn't exist
+    db = next(get_db())
+    try:
+        # Add default token if no tokens exist
+        tokens = token_manager.get_all_tokens(db)
+        if not tokens:
+            token_manager.create_token(db, TokenCreate(
+                description="Default API Token",
+                token=DEFAULT_API_TOKEN
+            ))
+            print("Created default API token")
+            
+        # Add superadmin if specified in environment variables
+        if SUPERADMIN_USERNAME and SUPERADMIN_PASSWORD:
+            admin = admin_manager.get_superadmin_by_username(db, SUPERADMIN_USERNAME)
+            if not admin:
+                admin_manager.create_superadmin(db, SuperAdminCreate(
+                    username=SUPERADMIN_USERNAME,
+                    password=SUPERADMIN_PASSWORD
+                ))
+                print(f"Created superadmin user: {SUPERADMIN_USERNAME}")
+    finally:
+        db.close()
+    
+    yield
+
 # Initialize FastAPI app
 app = FastAPI(
     title="CFDI Verification API",
@@ -36,7 +68,8 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    lifespan=lifespan
 )
 
 # Initialize security
@@ -51,13 +84,29 @@ SUPERADMIN_PASSWORD = os.environ.get("SUPERADMIN_PASSWORD")
 
 # Models for CFDI request and response
 class CFDIRequest(BaseModel):
-    uuid: str = Field(..., description="UUID del CFDI", example="6128396f-c09b-4ec6-8699-43c5f7e3b230")
-    emisor_rfc: str = Field(..., description="RFC del emisor", example="CDZ050722LA9")
-    receptor_rfc: str = Field(..., description="RFC del receptor", example="XIN06112344A")
-    total: str = Field(..., description="Monto total del CFDI", example="12000.00")
+    uuid: str = Field(
+        ..., 
+        description="UUID del CFDI",
+        json_schema_extra={"example": "6128396f-c09b-4ec6-8699-43c5f7e3b230"}
+    )
+    emisor_rfc: str = Field(
+        ..., 
+        description="RFC del emisor",
+        json_schema_extra={"example": "CDZ050722LA9"}
+    )
+    receptor_rfc: str = Field(
+        ..., 
+        description="RFC del receptor",
+        json_schema_extra={"example": "XIN06112344A"}
+    )
+    total: str = Field(
+        ..., 
+        description="Monto total del CFDI",
+        json_schema_extra={"example": "12000.00"}
+    )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
                 "emisor_rfc": "CDZ050722LA9",
@@ -65,6 +114,7 @@ class CFDIRequest(BaseModel):
                 "total": "12000.00"
             }
         }
+    )
 
 class CFDIResponse(BaseModel):
     estado: Optional[str] = Field(None, description="Estado del CFDI")
@@ -76,8 +126,8 @@ class CFDIResponse(BaseModel):
     efos_receptor: Optional[Dict[str, Any]] = Field(None, description="Información de EFOS para el receptor")
     raw_response: Optional[str] = Field(None, description="Respuesta XML completa")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "estado": "Vigente",
                 "es_cancelable": "Cancelable sin aceptación",
@@ -89,12 +139,13 @@ class CFDIResponse(BaseModel):
                 "raw_response": "<!-- XML response content -->"
             }
         }
+    )
 
 class BatchCFDIRequest(BaseModel):
-    cfdis: List[CFDIRequest] = Field(..., description="Lista de CFDIs a verificar", min_items=1)
+    cfdis: List[CFDIRequest] = Field(..., description="Lista de CFDIs a verificar", min_length=1)
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "cfdis": [
                     {
@@ -112,6 +163,7 @@ class BatchCFDIRequest(BaseModel):
                 ]
             }
         }
+    )
 
 class CFDIBatchItem(BaseModel):
     request: CFDIRequest
@@ -121,8 +173,8 @@ class CFDIBatchItem(BaseModel):
 class BatchCFDIResponse(BaseModel):
     results: List[CFDIBatchItem]
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "results": [
                     {
@@ -156,6 +208,7 @@ class BatchCFDIResponse(BaseModel):
                 ]
             }
         }
+    )
 
 # Models for EFOS endpoints
 class RfcCheckRequest(BaseModel):
@@ -284,35 +337,6 @@ def consult_cfdi(uuid: str, emisor_rfc: str, receptor_rfc: str, total: str, db: 
         )
         
     return result
-
-# Startup event to create database tables and initial superadmin
-@app.on_event("startup")
-async def startup_event():
-    create_tables()
-    
-    # Create default API token if it doesn't exist
-    db = next(get_db())
-    try:
-        # Add default token if no tokens exist
-        tokens = token_manager.get_all_tokens(db)
-        if not tokens:
-            token_manager.create_token(db, TokenCreate(
-                description="Default API Token",
-                token=DEFAULT_API_TOKEN
-            ))
-            print("Created default API token")
-            
-        # Add superadmin if specified in environment variables
-        if SUPERADMIN_USERNAME and SUPERADMIN_PASSWORD:
-            admin = admin_manager.get_superadmin_by_username(db, SUPERADMIN_USERNAME)
-            if not admin:
-                admin_manager.create_superadmin(db, SuperAdminCreate(
-                    username=SUPERADMIN_USERNAME,
-                    password=SUPERADMIN_PASSWORD
-                ))
-                print(f"Created superadmin user: {SUPERADMIN_USERNAME}")
-    finally:
-        db.close()
 
 # CFDI verification endpoint
 @app.post("/verify-cfdi", response_model=CFDIResponse, tags=["CFDI"])
@@ -676,7 +700,7 @@ def update_admin_password(
     """
     Update a superadmin's password
     """
-    result = admin_manager.update_superadmin_password(db, username, password_data.password)
+    result = admin_manager.update_superadmin_password(db, username, password_data.current_password, password_data.new_password)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

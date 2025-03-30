@@ -3,14 +3,15 @@ from database import SuperAdmin
 from security import get_password_hash, verify_password
 from fastapi import HTTPException, status
 from typing import Optional
+from schemas import SuperAdminCreate, SuperAdminUpdate
 
 # Create a new superadmin
-def create_superadmin(db: Session, username: str, password: str) -> SuperAdmin:
+def create_superadmin(db: Session, admin_data: SuperAdminCreate) -> SuperAdmin:
     """
     Create a new superadmin in the database
     """
     # Check if superadmin already exists
-    existing_admin = db.query(SuperAdmin).filter(SuperAdmin.username == username).first()
+    existing_admin = db.query(SuperAdmin).filter(SuperAdmin.username == admin_data.username).first()
     if existing_admin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -18,9 +19,9 @@ def create_superadmin(db: Session, username: str, password: str) -> SuperAdmin:
         )
     
     # Create new superadmin
-    hashed_password = get_password_hash(password)
+    hashed_password = get_password_hash(admin_data.password)
     db_admin = SuperAdmin(
-        username=username,
+        username=admin_data.username,
         hashed_password=hashed_password,
         is_active=True
     )

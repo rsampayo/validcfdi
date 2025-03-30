@@ -1,5 +1,5 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 from datetime import datetime
@@ -61,6 +61,7 @@ class SuperAdmin(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
 
 # Model for EFOS records (Empresas que Facturan Operaciones Simuladas)
 class EfosRecord(Base):
@@ -102,6 +103,7 @@ class EfosMetadata(Base):
     content_hash = Column(String, nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow)
     last_checked = Column(DateTime, default=datetime.utcnow)
+    error_message = Column(Text, nullable=True)
     
 # Function to create tables
 def create_tables():

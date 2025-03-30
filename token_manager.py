@@ -4,16 +4,17 @@ from security import generate_api_token
 from fastapi import HTTPException, status
 from datetime import datetime
 from typing import List, Optional
+from schemas import TokenCreate, TokenUpdate
 
 # Create a new API token
-def create_token(db: Session, description: Optional[str] = None) -> ApiToken:
+def create_token(db: Session, token_data: TokenCreate) -> ApiToken:
     """
     Create a new API token in the database
     """
     new_token = generate_api_token()
     db_token = ApiToken(
         token=new_token,
-        description=description,
+        description=token_data.description,
         is_active=True,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
@@ -38,7 +39,7 @@ def get_token_by_id(db: Session, token_id: int) -> Optional[ApiToken]:
     return db.query(ApiToken).filter(ApiToken.id == token_id).first()
 
 # Update an API token
-def update_token(db: Session, token_id: int, description: Optional[str] = None, is_active: Optional[bool] = None) -> ApiToken:
+def update_token(db: Session, token_id: int, token_data: TokenUpdate) -> ApiToken:
     """
     Update an API token in the database
     """
@@ -47,10 +48,10 @@ def update_token(db: Session, token_id: int, description: Optional[str] = None, 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
     
     # Update fields if provided
-    if description is not None:
-        db_token.description = description
-    if is_active is not None:
-        db_token.is_active = is_active
+    if token_data.description is not None:
+        db_token.description = token_data.description
+    if token_data.is_active is not None:
+        db_token.is_active = token_data.is_active
     
     db_token.updated_at = datetime.utcnow()
     db.commit()
