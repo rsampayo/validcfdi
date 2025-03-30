@@ -27,6 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger("efos_scheduler")
 
 # Configuration
+# Default to 24 hours (1 day)
 UPDATE_INTERVAL_DAYS = int(os.environ.get("EFOS_UPDATE_INTERVAL_DAYS", "1"))
 UPDATE_TIME = os.environ.get("EFOS_UPDATE_TIME", "03:00")  # Default is 3 AM
 
@@ -36,7 +37,8 @@ def get_db_session():
 
 def update_efos_database_job():
     """Job to update the EFOS database"""
-    logger.info(f"EFOS database update job started at {datetime.now().isoformat()}")
+    job_start_time = datetime.now()
+    logger.info(f"EFOS database check job started at {job_start_time.isoformat()}")
     
     try:
         # Create database session
@@ -45,11 +47,15 @@ def update_efos_database_job():
         # Run update
         result = efos_manager.update_efos_database(db)
         
-        # Log result
+        # Log result based on status
         if result.get("status") == "success":
-            logger.info(f"EFOS database update completed successfully. Processed {result.get('records_processed', 0)} records, imported {result.get('records_imported', 0)} records in {result.get('processing_time_seconds', 0):.2f} seconds.")
+            logger.info(f"✅ EFOS database update COMPLETED SUCCESSFULLY - File has changed")
+            logger.info(f"Processed {result.get('records_processed', 0)} records, imported {result.get('records_imported', 0)} records in {result.get('processing_time_seconds', 0):.2f} seconds.")
+        elif result.get("status") == "unchanged":
+            logger.info(f"ℹ️ EFOS database update SKIPPED - File has not changed since last update")
+            logger.info(f"Check completed in {result.get('processing_time_seconds', 0):.2f} seconds.")
         else:
-            logger.error(f"EFOS database update failed: {result.get('error_message', 'Unknown error')}")
+            logger.error(f"❌ EFOS database update FAILED: {result.get('error_message', 'Unknown error')}")
             
     except Exception as e:
         logger.error(f"Error in EFOS database update job: {str(e)}")
@@ -57,7 +63,9 @@ def update_efos_database_job():
         # Close database session
         db.close()
         
-    logger.info(f"EFOS database update job finished at {datetime.now().isoformat()}")
+    job_end_time = datetime.now()
+    job_duration = (job_end_time - job_start_time).total_seconds()
+    logger.info(f"EFOS database check job finished at {job_end_time.isoformat()} (took {job_duration:.2f} seconds)")
 
 def run_threaded(job_func):
     """Run a job in a separate thread"""
@@ -78,7 +86,10 @@ def setup_schedule():
 
 def run_scheduler():
     """Main function to run the scheduler"""
+    logger.info("=========================================")
     logger.info("Starting EFOS scheduler")
+    logger.info(f"Will check for updates every {UPDATE_INTERVAL_DAYS} day(s) at {UPDATE_TIME}")
+    logger.info("=========================================")
     
     # Setup the job schedule
     setup_schedule()

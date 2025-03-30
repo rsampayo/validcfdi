@@ -195,9 +195,10 @@ La API incluye funcionalidad para descargar, procesar y consultar la lista ofici
 ### Características de la Funcionalidad EFOS
 
 - Descarga automática de la lista oficial del SAT
+- Verificación de cambios para evitar actualizaciones innecesarias
 - Limpieza y procesamiento del archivo CSV
 - Almacenamiento de datos en base de datos local
-- Actualización programada y automática
+- Actualización programada cada 24 horas (configurable)
 - Verificación de RFCs contra la lista de EFOS
 - Integración con la verificación de CFDI para alertar sobre emisores o receptores en la lista EFOS
 
@@ -252,7 +253,12 @@ Para mantener la base de datos EFOS actualizada, puedes ejecutar el programador 
 python efos_scheduler.py
 ```
 
-Esto ejecutará un proceso que actualizará la base de datos EFOS según la configuración especificada en el archivo `.env`.
+Esto ejecutará un proceso que:
+1. Verificará cada 24 horas si la lista EFOS del SAT ha cambiado
+2. Sólo descargará y procesará el archivo si se detectan cambios
+3. Actualizará la base de datos solo cuando sea necesario
+
+El proceso es eficiente y evita actualizaciones innecesarias cuando el archivo no ha cambiado.
 
 ### Configuración EFOS
 
@@ -266,8 +272,8 @@ EFOS_UPDATE_TIME=03:00
 ```
 
 - `EFOS_CSV_URL`: URL del archivo CSV oficial del SAT
-- `EFOS_UPDATE_INTERVAL_DAYS`: Frecuencia de actualización en días
-- `EFOS_UPDATE_TIME`: Hora del día para realizar la actualización (formato 24h)
+- `EFOS_UPDATE_INTERVAL_DAYS`: Frecuencia de verificación en días (por defecto: 1 día)
+- `EFOS_UPDATE_TIME`: Hora del día para realizar la verificación (formato 24h)
 
 ## Despliegue en Heroku
 

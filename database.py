@@ -89,6 +89,19 @@ class EfosRecord(Base):
     publicacion_dof_sentencia_favorable = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# Model for EFOS file metadata tracking
+class EfosMetadata(Base):
+    __tablename__ = "efos_metadata"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    etag = Column(String, nullable=True)
+    last_modified = Column(String, nullable=True)
+    content_length = Column(String, nullable=True)
+    content_type = Column(String, nullable=True)
+    content_hash = Column(String, nullable=True)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+    last_checked = Column(DateTime, default=datetime.utcnow)
     
 # Function to create tables
 def create_tables():

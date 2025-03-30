@@ -4,20 +4,180 @@ import io
 import csv
 import tempfile
 import subprocess
+import hashlib
 from datetime import datetime
 from sqlalchemy.orm import Session
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from typing import List, Dict, Optional, Tuple
 import logging
+from pathlib import Path
 
-from database import EfosRecord
+from database import EfosRecord, EfosMetadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # URL of the EFOS CSV file from SAT
-EFOS_CSV_URL = "http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv"
+EFOS_CSV_URL = os.environ.get("EFOS_CSV_URL", "http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv")
+
+def get_file_metadata(url: str = None) -> Dict:
+    """
+    Gets metadata about the remote file using HEAD request
+    
+    Args:
+        url: URL of the file (defaults to EFOS_CSV_URL)
+        
+    Returns:
+        Dictionary with file metadata
+    """
+    if url is None:
+        url = EFOS_CSV_URL
+        
+    try:
+        logger.info(f"Checking metadata for file at {url}")
+        response = requests.head(url, timeout=10)
+        response.raise_for_status()
+        
+        # Get HTTP headers
+        headers = response.headers
+        
+        metadata = {
+            "etag": headers.get("ETag"),
+            "last_modified": headers.get("Last-Modified"),
+            "content_length": headers.get("Content-Length"),
+            "content_type": headers.get("Content-Type"),
+            "checked_at": datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"File metadata: ETag: {metadata['etag']}, Last-Modified: {metadata['last_modified']}, Size: {metadata['content_length']}")
+        return metadata
+        
+    except requests.RequestException as e:
+        logger.error(f"Error getting file metadata: {str(e)}")
+        raise Exception(f"Failed to get file metadata: {str(e)}")
+
+def calculate_file_hash(content: bytes) -> str:
+    """
+    Calculates a SHA-256 hash of the file content
+    
+    Args:
+        content: File content in bytes
+        
+    Returns:
+        Hash as a hex string
+    """
+    return hashlib.sha256(content).hexdigest()
+
+def has_file_changed(db: Session, content: bytes = None) -> Tuple[bool, Dict]:
+    """
+    Checks if the EFOS file has changed since the last update
+    
+    Args:
+        db: Database session
+        content: Optional file content in bytes (if already downloaded)
+        
+    Returns:
+        Tuple with (has_changed, metadata)
+    """
+    try:
+        # Get current metadata from remote file
+        remote_metadata = get_file_metadata()
+        
+        # Get last saved metadata from database
+        metadata_record = db.query(EfosMetadata).first()
+        
+        if metadata_record is None:
+            logger.info("No previous metadata found, file considered changed")
+            
+            # If content is provided, calculate its hash
+            if content:
+                remote_metadata["content_hash"] = calculate_file_hash(content)
+                
+            return True, remote_metadata
+        
+        # Check if ETag or Last-Modified have changed
+        if remote_metadata.get("etag") and metadata_record.etag:
+            if remote_metadata["etag"] != metadata_record.etag:
+                logger.info(f"ETag has changed: {metadata_record.etag} -> {remote_metadata['etag']}")
+                
+                # Calculate hash if content is available
+                if content:
+                    remote_metadata["content_hash"] = calculate_file_hash(content)
+                    
+                return True, remote_metadata
+        
+        if remote_metadata.get("last_modified") and metadata_record.last_modified:
+            if remote_metadata["last_modified"] != metadata_record.last_modified:
+                logger.info(f"Last-Modified has changed: {metadata_record.last_modified} -> {remote_metadata['last_modified']}")
+                
+                # Calculate hash if content is available
+                if content:
+                    remote_metadata["content_hash"] = calculate_file_hash(content)
+                    
+                return True, remote_metadata
+        
+        # If we have content, we can do a hash comparison regardless of headers
+        if content:
+            content_hash = calculate_file_hash(content)
+            remote_metadata["content_hash"] = content_hash
+            
+            if not metadata_record.content_hash or content_hash != metadata_record.content_hash:
+                logger.info(f"Content hash has changed: {metadata_record.content_hash} -> {content_hash}")
+                return True, remote_metadata
+                
+        # No changes detected
+        logger.info("No changes detected in EFOS file")
+        return False, remote_metadata
+        
+    except Exception as e:
+        logger.error(f"Error checking if file has changed: {str(e)}")
+        # If we can't determine if the file has changed, assume it has as a precaution
+        return True, {}
+
+def save_metadata(db: Session, metadata: Dict) -> None:
+    """
+    Saves file metadata to the database
+    
+    Args:
+        db: Database session
+        metadata: Dictionary with metadata to save
+    """
+    try:
+        # Get existing metadata or create new
+        metadata_record = db.query(EfosMetadata).first()
+        
+        if metadata_record is None:
+            metadata_record = EfosMetadata(
+                etag=metadata.get("etag"),
+                last_modified=metadata.get("last_modified"),
+                content_length=metadata.get("content_length"),
+                content_type=metadata.get("content_type"),
+                content_hash=metadata.get("content_hash"),
+                last_updated=datetime.utcnow(),
+                last_checked=datetime.utcnow()
+            )
+            db.add(metadata_record)
+        else:
+            metadata_record.etag = metadata.get("etag", metadata_record.etag)
+            metadata_record.last_modified = metadata.get("last_modified", metadata_record.last_modified)
+            metadata_record.content_length = metadata.get("content_length", metadata_record.content_length)
+            metadata_record.content_type = metadata.get("content_type", metadata_record.content_type)
+            metadata_record.content_hash = metadata.get("content_hash", metadata_record.content_hash)
+            metadata_record.last_updated = datetime.utcnow() if any([
+                metadata.get("etag"), 
+                metadata.get("last_modified"),
+                metadata.get("content_hash")
+            ]) else metadata_record.last_updated
+            metadata_record.last_checked = datetime.utcnow()
+            
+        db.commit()
+        logger.info("Saved file metadata to database")
+            
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error saving metadata: {str(e)}")
+        raise Exception(f"Failed to save metadata: {str(e)}")
 
 def download_efos_csv() -> Tuple[bytes, str]:
     """
@@ -246,9 +406,9 @@ def update_efos_database(db: Session) -> Dict:
     """
     Complete workflow to update the EFOS database:
     1. Download the CSV file
-    2. Clean the CSV data
-    3. Parse the CSV data
-    4. Import the records to the database
+    2. Check if it has changed since last update
+    3. If changed, clean the CSV data, parse it, and import to database
+    4. Update the file metadata
     
     Args:
         db: Database session
@@ -256,13 +416,34 @@ def update_efos_database(db: Session) -> Dict:
     Returns:
         Dictionary with the results of the update
     """
-    start_time = datetime.now()
-    logger.info("Starting EFOS database update")
+    start_time = datetime.utcnow()
+    logger.info("Starting EFOS database update check")
     
     try:
         # Download CSV
         csv_content, filename = download_efos_csv()
         logger.info(f"Downloaded {len(csv_content)} bytes from {filename}")
+        
+        # Check if file has changed
+        has_changed, metadata = has_file_changed(db, csv_content)
+        
+        # If file has not changed, skip processing
+        if not has_changed:
+            end_time = datetime.utcnow()
+            processing_time = (end_time - start_time).total_seconds()
+            
+            # Update last_checked in metadata
+            save_metadata(db, metadata)
+            
+            result = {
+                "status": "unchanged",
+                "message": "EFOS file has not changed since last update",
+                "processing_time_seconds": processing_time,
+                "timestamp": end_time.isoformat()
+            }
+            
+            logger.info(f"EFOS database update skipped (file unchanged) in {processing_time:.2f} seconds")
+            return result
         
         # Clean CSV
         cleaned_csv = clean_csv_data(csv_content)
@@ -275,8 +456,11 @@ def update_efos_database(db: Session) -> Dict:
         # Import data
         imported_count = import_efos_data(db, records)
         
+        # Save file metadata
+        save_metadata(db, metadata)
+        
         # Calculate processing time
-        end_time = datetime.now()
+        end_time = datetime.utcnow()
         processing_time = (end_time - start_time).total_seconds()
         
         result = {
@@ -291,7 +475,7 @@ def update_efos_database(db: Session) -> Dict:
         return result
         
     except Exception as e:
-        end_time = datetime.now()
+        end_time = datetime.utcnow()
         processing_time = (end_time - start_time).total_seconds()
         
         error_result = {
