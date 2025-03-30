@@ -10,12 +10,15 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 import asyncio
 import concurrent.futures
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 # Load environment variables
 load_dotenv()
 
 # Import database and models
-from database import get_db, create_tables
+from database import get_db, create_tables, SessionLocal, EfosMetadata
 from security import verify_api_token, verify_superadmin
 import token_manager
 import admin_manager
@@ -162,12 +165,14 @@ class RfcCheckResponse(BaseModel):
     rfc: str = Field(..., description="RFC consultado")
     is_in_efos_list: bool = Field(..., description="Indica si el RFC está en la lista EFOS")
     efos_data: Optional[Dict[str, Any]] = Field(None, description="Datos EFOS del RFC (si está en la lista)")
+    efos_metadata: Optional[Dict[str, Any]] = Field(None, description="Información sobre la última actualización de la base de datos EFOS")
 
 class BatchRfcCheckRequest(BaseModel):
     rfcs: List[str] = Field(..., description="Lista de RFCs a consultar", min_items=1, example=["XYZ123456789", "ABC987654321"])
 
 class BatchRfcCheckResponse(BaseModel):
     results: List[RfcCheckResponse] = Field(..., description="Resultados de la consulta de cada RFC")
+    efos_metadata: Optional[Dict[str, Any]] = Field(None, description="Información sobre la última actualización de la base de datos EFOS")
 
 class EfosUpdateResponse(BaseModel):
     status: str = Field(..., description="Estado de la actualización")
@@ -423,10 +428,24 @@ def check_rfc_efos(
         # Check if RFC is in EFOS list
         efos_data = efos_manager.check_rfc_in_efos(db, rfc_data.rfc)
         
+        # Get EFOS metadata
+        metadata_record = db.query(EfosMetadata).first()
+        efos_metadata = None
+        
+        if metadata_record:
+            efos_metadata = {
+                "last_updated": metadata_record.last_updated,
+                "last_checked": metadata_record.last_checked,
+                "etag": metadata_record.etag,
+                "last_modified": metadata_record.last_modified,
+                "content_hash": metadata_record.content_hash
+            }
+        
         return {
             "rfc": rfc_data.rfc,
             "is_in_efos_list": efos_data is not None,
-            "efos_data": efos_data
+            "efos_data": efos_data,
+            "efos_metadata": efos_metadata
         }
     except Exception as e:
         raise HTTPException(
@@ -447,6 +466,19 @@ def check_rfc_efos_batch(
     try:
         results = []
         
+        # Get EFOS metadata once for the whole batch
+        metadata_record = db.query(EfosMetadata).first()
+        efos_metadata = None
+        
+        if metadata_record:
+            efos_metadata = {
+                "last_updated": metadata_record.last_updated,
+                "last_checked": metadata_record.last_checked,
+                "etag": metadata_record.etag,
+                "last_modified": metadata_record.last_modified,
+                "content_hash": metadata_record.content_hash
+            }
+        
         # Process each RFC
         for rfc in batch_data.rfcs:
             # Check if RFC is in EFOS list
@@ -456,10 +488,14 @@ def check_rfc_efos_batch(
             results.append({
                 "rfc": rfc,
                 "is_in_efos_list": efos_data is not None,
-                "efos_data": efos_data
+                "efos_data": efos_data,
+                "efos_metadata": None  # Include metadata at the top level only
             })
         
-        return {"results": results}
+        return {
+            "results": results,
+            "efos_metadata": efos_metadata
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
