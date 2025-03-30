@@ -723,4 +723,20 @@ def deactivate_admin_account(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Superadmin not found"
         )
-    return {"message": "Superadmin deactivated successfully"} 
+    return {"message": "Superadmin deactivated successfully"}
+
+@app.get("/admin/efos/metadata", tags=["Admin"])
+def get_efos_metadata_endpoint(
+    superadmin = Depends(verify_superadmin),
+    db: Session = Depends(get_db)
+):
+    """
+    Get EFOS metadata information
+    """
+    metadata = efos_manager.get_efos_metadata(db)
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="EFOS metadata not found"
+        )
+    return metadata 
