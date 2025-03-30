@@ -214,6 +214,21 @@ curl -X 'POST' \
 }'
 ```
 
+### Verificar Múltiples RFCs contra la Lista EFOS (Procesamiento por Lotes)
+
+```bash
+curl -X 'POST' \
+  'https://tu-app.herokuapp.com/check-rfc-efos-batch' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer tu-token-secreto' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "rfcs": ["RFC123456ABC", "XYZ987654321", "AAA080808HL8"]
+}'
+```
+
+Esta funcionalidad permite verificar múltiples RFCs en una sola petición, lo que reduce la latencia y el número de conexiones necesarias. Cada RFC se verifica independientemente, y el resultado incluye información sobre si el RFC está en la lista EFOS y sus detalles si es el caso.
+
 ### Actualizar Manualmente la Base de Datos EFOS
 
 Este endpoint está protegido y solo puede ser accedido por superadministradores:

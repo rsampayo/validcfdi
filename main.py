@@ -163,6 +163,12 @@ class RfcCheckResponse(BaseModel):
     is_in_efos_list: bool = Field(..., description="Indica si el RFC está en la lista EFOS")
     efos_data: Optional[Dict[str, Any]] = Field(None, description="Datos EFOS del RFC (si está en la lista)")
 
+class BatchRfcCheckRequest(BaseModel):
+    rfcs: List[str] = Field(..., description="Lista de RFCs a consultar", min_items=1, example=["XYZ123456789", "ABC987654321"])
+
+class BatchRfcCheckResponse(BaseModel):
+    results: List[RfcCheckResponse] = Field(..., description="Resultados de la consulta de cada RFC")
+
 class EfosUpdateResponse(BaseModel):
     status: str = Field(..., description="Estado de la actualización")
     message: str = Field(..., description="Mensaje de la actualización")
@@ -426,6 +432,38 @@ def check_rfc_efos(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error checking RFC in EFOS list: {str(e)}"
+        )
+
+# EFOS batch check endpoint
+@app.post("/check-rfc-efos-batch", response_model=BatchRfcCheckResponse, tags=["EFOS"])
+def check_rfc_efos_batch(
+    batch_data: BatchRfcCheckRequest,
+    token: str = Depends(verify_api_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica si múltiples RFCs están en la lista de EFOS del SAT
+    """
+    try:
+        results = []
+        
+        # Process each RFC
+        for rfc in batch_data.rfcs:
+            # Check if RFC is in EFOS list
+            efos_data = efos_manager.check_rfc_in_efos(db, rfc)
+            
+            # Add result
+            results.append({
+                "rfc": rfc,
+                "is_in_efos_list": efos_data is not None,
+                "efos_data": efos_data
+            })
+        
+        return {"results": results}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking RFCs in EFOS list: {str(e)}"
         )
 
 # EFOS database update endpoint
