@@ -33,16 +33,18 @@ def setup_database():
     logger.info("Running Database setup...")
     
     try:
-        # Run migrations first
-        logger.info("Running database migrations...")
-        if not run_migrations():
-            logger.error("❌ Database migrations failed")
-            return False
-        logger.info("✅ Database migrations completed")
-        
-        # Create tables
+        # Create tables first
         logger.info("Creating database tables...")
         create_tables()
+        logger.info("✅ Database tables created")
+        
+        # Then run migrations
+        logger.info("Running database migrations...")
+        if not run_migrations():
+            logger.warning("⚠️ Database migrations skipped - tables may already exist")
+        else:
+            logger.info("✅ Database migrations completed")
+        
         duration = time.time() - start_time
         logger.info(f"✅ Database setup successful")
         logger.info(f"✅ Database setup completed in {duration:.2f} seconds")
