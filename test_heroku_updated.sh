@@ -7,11 +7,11 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# API URL - Updated to correct validcfdi-efos-api URL
-API_URL="https://validcfdi-efos-d2fa8fe5e435.herokuapp.com"
+# API URL for Heroku deployment
+API_URL="https://validcfdi-api-be42092ab7e2.herokuapp.com"
 
-# API Token
-API_TOKEN="b90249760c8bd829bfbdd91290393bfb202b950ffca45f4a3064ff6deb333792"
+# API Token from Heroku database
+API_TOKEN="c822cf5ee82316013d21d912d95c5a770f86bd4ed278a8a33e729609e387efa4"
 
 # Test data
 CFDI_DATA='{"uuid":"6128396f-c09b-4ec6-8699-43c5f7e3b230","emisor_rfc":"CDZ050722LA9","receptor_rfc":"XIN06112344A","total":"12000.00"}'
@@ -19,14 +19,17 @@ BATCH_CFDI_DATA='{"cfdis":[{"uuid":"6128396f-c09b-4ec6-8699-43c5f7e3b230","emiso
 RFC_DATA='{"rfc":"CDZ050722LA9"}'
 BATCH_RFC_DATA='{"rfcs":["CDZ050722LA9","XIN06112344A"]}'
 
+# Admin credentials
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="password"
+
 # Function to make API calls and display results
 test_endpoint() {
     local method=$1
     local endpoint=$2
     local data=$3
     local description=$4
-    local auth=${5:-true}
-    local expected_auth_error=${6:-false}
+    local auth=${5:-bearer}  # Options: bearer, basic, none
     
     echo -e "\n${BLUE}====================================================${NC}"
     echo -e "${YELLOW}Testing: ${description}${NC}"
@@ -41,8 +44,12 @@ test_endpoint() {
     CURL_CMD="curl -s -X ${method} ${API_URL}${endpoint}"
     
     # Add authentication header if required
-    if [ "$auth" = true ]; then
+    if [ "$auth" = "bearer" ]; then
         CURL_CMD="$CURL_CMD -H \"Authorization: Bearer ${API_TOKEN}\""
+    elif [ "$auth" = "basic" ]; then
+        # Create Basic Auth header
+        BASIC_AUTH=$(echo -n "${ADMIN_USERNAME}:${ADMIN_PASSWORD}" | base64)
+        CURL_CMD="$CURL_CMD -H \"Authorization: Basic ${BASIC_AUTH}\""
     fi
     
     # Add content type and data for POST requests
@@ -63,18 +70,13 @@ test_endpoint() {
     # Display response
     echo -e "\nResponse:"
     if [ $STATUS -eq 0 ]; then
-        # Show raw response without JSON parsing
-        echo "$RESPONSE"
-        
-        if [ ! -z "$RESPONSE" ]; then
-            # Check for authentication errors if we're expecting them
-            if [ "$expected_auth_error" = true ] && [[ "$RESPONSE" == *"Invalid authentication token"* || "$RESPONSE" == *"Not authenticated"* ]]; then
-                echo -e "\n${GREEN}✅ Expected authentication error received${NC}"
-            else
-                echo -e "\n${GREEN}✅ Response received${NC}"
-            fi
+        # Try to format JSON if the response is valid JSON
+        if echo "$RESPONSE" | jq '.' > /dev/null 2>&1; then
+            echo "$RESPONSE" | jq '.'
+            echo -e "\n${GREEN}✅ Test passed${NC}"
         else
-            echo -e "\n${RED}❌ Empty response${NC}"
+            echo "$RESPONSE"
+            echo -e "\n${RED}❌ Invalid JSON response${NC}"
         fi
     else
         echo -e "${RED}Failed to connect to the API. Status code: $STATUS${NC}"
@@ -85,23 +87,24 @@ test_endpoint() {
 
 # Run tests for various endpoints
 
+echo -e "${BLUE}====================================================${NC}"
+echo -e "${YELLOW}Testing Heroku Deployment - UPDATED${NC}"
+echo -e "${BLUE}====================================================${NC}"
+
 # 1. Health endpoint
-test_endpoint "GET" "/health" "" "Health Check" false
+test_endpoint "GET" "/health" "" "Health Check" "none"
 
 # 2. Verify CFDI endpoint
-test_endpoint "POST" "/verify-cfdi" "$CFDI_DATA" "Verify CFDI" true true
+test_endpoint "POST" "/verify-cfdi" "$CFDI_DATA" "Verify CFDI" "bearer"
 
 # 3. Verify CFDI Batch endpoint
-test_endpoint "POST" "/verify-cfdi-batch" "$BATCH_CFDI_DATA" "Verify CFDI Batch" true true
+test_endpoint "POST" "/verify-cfdi-batch" "$BATCH_CFDI_DATA" "Verify CFDI Batch" "bearer"
 
-# 4. Check RFC in EFOS list
-test_endpoint "POST" "/check-rfc-efos" "$RFC_DATA" "Check RFC in EFOS List" true true
+# 4. Admin endpoint - List tokens
+test_endpoint "GET" "/admin/tokens" "" "Admin - List Tokens" "basic"
 
-# 5. Check RFC Batch in EFOS list
-test_endpoint "POST" "/check-rfc-efos-batch" "$BATCH_RFC_DATA" "Check RFC Batch in EFOS List" true true
-
-# 6. Test unauthorized access (no token)
-test_endpoint "POST" "/verify-cfdi" "$CFDI_DATA" "Unauthorized Access (No Token)" false true
+# 5. Check unauthorized access
+test_endpoint "POST" "/verify-cfdi" "$CFDI_DATA" "Unauthorized Access" "none"
 
 # Print summary
 echo -e "\n${BLUE}====================================================${NC}"

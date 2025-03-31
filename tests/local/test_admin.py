@@ -6,6 +6,7 @@ import requests
 import os
 import base64
 from dotenv import load_dotenv
+from base64 import b64encode
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,13 +20,31 @@ ADMIN_PASSWORD = os.getenv("SUPERADMIN_PASSWORD", "password")
 
 @pytest.fixture
 def admin_headers():
-    """Return the headers for admin API requests with basic auth"""
+    """Create authentication headers for admin endpoints"""
     credentials = f"{ADMIN_USERNAME}:{ADMIN_PASSWORD}"
-    encoded = base64.b64encode(credentials.encode()).decode()
+    encoded_credentials = b64encode(credentials.encode()).decode()
     return {
-        "Authorization": f"Basic {encoded}",
+        "Authorization": f"Basic {encoded_credentials}",
         "Content-Type": "application/json"
     }
+
+@pytest.fixture
+def token_id(admin_headers):
+    """Create a test token and return its ID for testing"""
+    # Create a token to use for testing
+    response = requests.post(
+        f"{API_URL}/admin/tokens",
+        headers=admin_headers,
+        json={"description": "Test Token for Fixture"}
+    )
+    
+    # Ensure token was created successfully
+    assert response.status_code == 200
+    token_data = response.json()
+    assert "id" in token_data
+    
+    # Return the token ID for other tests to use
+    return token_data["id"]
 
 def test_admin_list_tokens(admin_headers):
     """Test the admin/tokens endpoint (listing tokens)"""
@@ -47,24 +66,23 @@ def test_admin_efos_metadata(admin_headers):
     assert response.status_code == 200
     
 def test_admin_create_token(admin_headers):
-    """Test token creation"""
-    test_data = {
-        "description": "Test Token"
+    """Test creating a new API token"""
+    token_data = {
+        "description": "Test token"
     }
     
     response = requests.post(
         f"{API_URL}/admin/tokens",
         headers=admin_headers,
-        json=test_data
+        json=token_data
     )
     
     assert response.status_code == 200
-    assert "token" in response.json()
-    assert "id" in response.json()
-    assert response.json()["description"] == "Test Token"
-    
-    # Store the new token ID for cleanup in later tests
-    return response.json()["id"]
+    data = response.json()
+    assert "id" in data
+    assert "token" in data
+    assert "description" in data
+    assert data["description"] == token_data["description"]
 
 def test_admin_regenerate_token(admin_headers, token_id):
     """Test token regeneration"""

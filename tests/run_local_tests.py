@@ -7,6 +7,9 @@ import sys
 import subprocess
 import time
 
+# Set the API URL to the Heroku endpoint
+os.environ["API_URL"] = "https://validcfdi-efos-d2fa8fe5e435.herokuapp.com"
+
 # Add parent directory to path so we can import the test modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -61,8 +64,8 @@ def main():
     
     # Define test modules to run
     test_modules = [
-        "tests/local/test_api.py",
-        "tests/local/test_admin.py"
+        "local/test_api.py",
+        "local/test_admin.py"
     ]
     
     # Run each test module

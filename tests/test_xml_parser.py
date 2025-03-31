@@ -21,8 +21,9 @@ class TestCfdiXmlParser(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures"""
-        self.sample_path_40 = os.path.join('tests', 'xml_samples', 'sample_cfdi.xml')
-        self.sample_path_33 = os.path.join('tests', 'xml_samples', 'sample_cfdi33.xml')
+        # Use correct absolute paths
+        self.sample_path_40 = os.path.join(os.getcwd(), 'tests', 'xml_samples', 'sample_cfdi.xml')
+        self.sample_path_33 = os.path.join(os.getcwd(), 'tests', 'xml_samples', 'sample_cfdi33.xml')
         
         # Read sample files
         with open(self.sample_path_40, 'r', encoding='utf-8') as f:
