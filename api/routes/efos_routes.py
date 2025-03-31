@@ -20,7 +20,7 @@ router = APIRouter(
 # Models
 class RfcCheckRequest(BaseModel):
     """Request model for RFC check"""
-    rfc: str = Field(..., description="RFC to check", example="AAA100303L51")
+    rfc: str = Field(..., description="RFC to check", json_schema_extra={"example": "AAA100303L51"})
     
 class RfcCheckResponse(BaseModel):
     """Response model for RFC check"""
@@ -31,7 +31,7 @@ class RfcCheckResponse(BaseModel):
     
 class BatchRfcCheckRequest(BaseModel):
     """Request model for batch RFC check"""
-    rfcs: List[str] = Field(..., description="List of RFCs to check", min_items=1)
+    rfcs: List[str] = Field(..., description="List of RFCs to check", min_length=1)
     
 class BatchRfcCheckResponse(BaseModel):
     """Response model for batch RFC check"""

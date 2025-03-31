@@ -20,14 +20,14 @@ router = APIRouter(
 # Models
 class CFDIRequest(BaseModel):
     """Request model for CFDI verification"""
-    uuid: str = Field(..., description="UUID of the CFDI", example="6128396f-c09b-4ec6-8699-43c5f7e3b230")
-    emisor_rfc: str = Field(..., description="RFC of the emisor", example="CDZ050722LA9")
-    receptor_rfc: str = Field(..., description="RFC of the receptor", example="XIN06112344A")
-    total: str = Field(..., description="Total amount of the CFDI", example="12000.00")
+    uuid: str = Field(..., description="UUID of the CFDI", json_schema_extra={"example": "6128396f-c09b-4ec6-8699-43c5f7e3b230"})
+    emisor_rfc: str = Field(..., description="RFC of the emisor", json_schema_extra={"example": "CDZ050722LA9"})
+    receptor_rfc: str = Field(..., description="RFC of the receptor", json_schema_extra={"example": "XIN06112344A"})
+    total: str = Field(..., description="Total amount of the CFDI", json_schema_extra={"example": "12000.00"})
 
 class CFDIBatchRequest(BaseModel):
     """Request model for batch CFDI verification"""
-    cfdis: List[CFDIRequest] = Field(..., description="List of CFDIs to verify", min_items=1)
+    cfdis: List[CFDIRequest] = Field(..., description="List of CFDIs to verify", min_length=1)
     
 class CFDIResponse(BaseModel):
     """Response model for CFDI verification"""

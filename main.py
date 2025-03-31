@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 from api.routes.cfdi_routes import router as cfdi_router
 from api.routes.efos_routes import router as efos_router
@@ -21,11 +22,22 @@ logger = logging.getLogger(__name__)
 ENV = os.getenv("ENV", "development")
 APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
 
+# Define lifespan event handler
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize the application on startup and cleanup on shutdown."""
+    # Startup
+    logger.info(f"Starting Valid CFDI API in {ENV} environment")
+    yield
+    # Shutdown
+    logger.info("Shutting down Valid CFDI API")
+
 # Create FastAPI application
 app = FastAPI(
     title="Valid CFDI API",
     description="API for validating CFDIs and checking EFOS status",
     version=APP_VERSION,
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -49,12 +61,6 @@ app.include_router(cfdi_router)
 app.include_router(efos_router)
 app.include_router(admin_router)
 app.include_router(xml_router)  # New XML routes
-
-# Application startup event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application."""
-    logger.info(f"Starting Valid CFDI API in {ENV} environment")
 
 # Health check endpoint
 @app.get("/health", tags=["Health"])
