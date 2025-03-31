@@ -3,8 +3,8 @@ CFDI Verification Routes
 
 API endpoints for CFDI verification with SAT.
 """
-from fastapi import APIRouter, HTTPException, Depends, Body
-from typing import Dict, Any, Optional, List
+from fastapi import APIRouter, HTTPException, Depends, Body, status
+from typing import Dict, Any, Optional, List, cast
 from pydantic import BaseModel, Field
 
 from api.auth.auth_handler import validate_api_token
@@ -19,41 +19,117 @@ router = APIRouter(
 
 # Models
 class CFDIRequest(BaseModel):
-    """Request model for CFDI verification"""
-    uuid: str = Field(..., description="UUID of the CFDI", json_schema_extra={"example": "6128396f-c09b-4ec6-8699-43c5f7e3b230"})
-    emisor_rfc: str = Field(..., description="RFC of the emisor", json_schema_extra={"example": "CDZ050722LA9"})
-    receptor_rfc: str = Field(..., description="RFC of the receptor", json_schema_extra={"example": "XIN06112344A"})
-    total: str = Field(..., description="Total amount of the CFDI", json_schema_extra={"example": "12000.00"})
+    """
+    Request model for CFDI verification
+    
+    Attributes:
+        uuid: UUID of the CFDI document
+        emisor_rfc: RFC (tax ID) of the issuer
+        receptor_rfc: RFC (tax ID) of the receiver
+        total: Total amount of the invoice
+    """
+    uuid: str = Field(
+        ..., 
+        description="UUID of the CFDI", 
+        examples=["6128396f-c09b-4ec6-8699-43c5f7e3b230"]
+    )
+    emisor_rfc: str = Field(
+        ..., 
+        description="RFC of the emisor", 
+        examples=["CDZ050722LA9"]
+    )
+    receptor_rfc: str = Field(
+        ..., 
+        description="RFC of the receptor", 
+        examples=["XIN06112344A"]
+    )
+    total: str = Field(
+        ..., 
+        description="Total amount of the CFDI", 
+        examples=["12000.00"]
+    )
 
 class CFDIBatchRequest(BaseModel):
-    """Request model for batch CFDI verification"""
-    cfdis: List[CFDIRequest] = Field(..., description="List of CFDIs to verify", min_length=1)
+    """
+    Request model for batch CFDI verification
+    
+    Attributes:
+        cfdis: List of CFDI requests to verify in batch
+    """
+    cfdis: List[CFDIRequest] = Field(
+        ..., 
+        description="List of CFDIs to verify", 
+        min_length=1
+    )
     
 class CFDIResponse(BaseModel):
-    """Response model for CFDI verification"""
-    estado: Optional[str] = None
-    es_cancelable: Optional[str] = None
-    estatus_cancelacion: Optional[str] = None
-    codigo_estatus: Optional[str] = None
-    validacion_efos: Optional[str] = None
-    efos_emisor: Optional[Dict[str, Any]] = None
-    efos_receptor: Optional[Dict[str, Any]] = None
-    raw_response: Optional[str] = None
+    """
+    Response model for CFDI verification
+    
+    Attributes:
+        estado: Status of the CFDI
+        es_cancelable: Whether the CFDI can be canceled
+        estatus_cancelacion: Status of cancellation
+        codigo_estatus: Status code from SAT
+        validacion_efos: EFOS validation result
+        efos_emisor: EFOS information about the issuer
+        efos_receptor: EFOS information about the receiver
+        raw_response: Raw XML response from SAT
+    """
+    estado: Optional[str] = Field(None, description="Status of the CFDI")
+    es_cancelable: Optional[str] = Field(None, description="Whether the CFDI can be canceled")
+    estatus_cancelacion: Optional[str] = Field(None, description="Status of cancellation")
+    codigo_estatus: Optional[str] = Field(None, description="Status code from SAT")
+    validacion_efos: Optional[str] = Field(None, description="EFOS validation result")
+    efos_emisor: Optional[Dict[str, Any]] = Field(None, description="EFOS information about the issuer")
+    efos_receptor: Optional[Dict[str, Any]] = Field(None, description="EFOS information about the receiver")
+    raw_response: Optional[str] = Field(None, description="Raw XML response from SAT")
     
 class CFDIBatchItem(BaseModel):
-    """Item model for batch CFDI verification response"""
-    request: CFDIRequest
-    response: CFDIResponse
-    error: Optional[str] = None
+    """
+    Item model for batch CFDI verification response
+    
+    Attributes:
+        request: The original CFDI verification request
+        response: The verification response
+        error: Any error message if verification failed
+    """
+    request: CFDIRequest = Field(..., description="Original CFDI verification request")
+    response: CFDIResponse = Field(..., description="Verification response")
+    error: Optional[str] = Field(None, description="Error message if verification failed")
     
 class BatchCFDIResponse(BaseModel):
-    """Response model for batch CFDI verification"""
-    results: List[CFDIBatchItem]
-
-@router.post("/verify-cfdi", response_model=CFDIResponse)
-async def verify_cfdi_endpoint(cfdi_data: CFDIRequest):
     """
-    Verify a CFDI with SAT
+    Response model for batch CFDI verification
+    
+    Attributes:
+        results: List of batch verification results
+    """
+    results: List[CFDIBatchItem] = Field(..., description="List of verification results")
+
+@router.post(
+    "/verify-cfdi", 
+    response_model=CFDIResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Verify a single CFDI with SAT",
+    response_description="CFDI verification result from SAT"
+)
+async def verify_cfdi_endpoint(
+    cfdi_data: CFDIRequest = Body(..., description="CFDI data to verify")
+) -> Dict[str, Any]:
+    """
+    Verify a CFDI with SAT.
+    
+    This endpoint sends the CFDI data to the SAT verification service and returns the result.
+    
+    Args:
+        cfdi_data: The CFDI data to verify
+        
+    Returns:
+        The verification result from SAT
+        
+    Raises:
+        HTTPException: If there's an error during verification
     """
     try:
         # Call the verify_cfdi service
@@ -65,14 +141,34 @@ async def verify_cfdi_endpoint(cfdi_data: CFDIRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error verifying CFDI: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Error verifying CFDI: {str(e)}"
+        )
 
-@router.post("/verify-cfdi-batch", response_model=BatchCFDIResponse)
-async def verify_cfdi_batch_endpoint(batch_data: CFDIBatchRequest):
+@router.post(
+    "/verify-cfdi-batch", 
+    response_model=BatchCFDIResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Verify multiple CFDIs with SAT in a single request",
+    response_description="Batch verification results"
+)
+async def verify_cfdi_batch_endpoint(
+    batch_data: CFDIBatchRequest = Body(..., description="Batch of CFDI data to verify")
+) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Verify multiple CFDIs with SAT in a single request
+    Verify multiple CFDIs with SAT in a single request.
+    
+    This endpoint processes multiple CFDIs in one request and returns the results for each.
+    If one CFDI verification fails, the others will still be processed.
+    
+    Args:
+        batch_data: The batch of CFDI data to verify
+        
+    Returns:
+        The verification results for each CFDI in the batch
     """
-    results = []
+    results: List[Dict[str, Any]] = []
     
     # Process each CFDI individually
     for cfdi in batch_data.cfdis:
