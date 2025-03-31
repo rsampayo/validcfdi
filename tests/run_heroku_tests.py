@@ -31,7 +31,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run tests against a Heroku CFDI API deployment")
     parser.add_argument("--url", default=os.getenv("HEROKU_API_URL", "https://validcfdi-api-be42092ab7e2.herokuapp.com"),
                         help="Heroku API URL to test")
-    parser.add_argument("--token", default=os.getenv("HEROKU_API_TOKEN", "c822cf5ee82316013d21d912d95c5a770f86bd4ed278a8a33e729609e387efa4"),
+    parser.add_argument("--token", default=os.getenv("HEROKU_API_TOKEN", "default-token-479efc20c963150db08021870723d0f3"),
                         help="API token for authentication")
     parser.add_argument("--admin-user", default=os.getenv("HEROKU_ADMIN_USERNAME", "admin"),
                         help="Admin username for admin tests")

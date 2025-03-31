@@ -64,8 +64,8 @@ def main():
     
     # Define test modules to run
     test_modules = [
-        "local/test_api.py",
-        "local/test_admin.py"
+        "tests/local/test_api.py",
+        "tests/local/test_admin.py"
     ]
     
     # Run each test module

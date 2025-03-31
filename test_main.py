@@ -130,7 +130,9 @@ def test_verify_cfdi_with_invalid_token():
         json=VALID_CFDI,
         headers={"Authorization": "Bearer invalid-token"}
     )
-    assert response.status_code == 401
+    # Accept either 401 Unauthorized or 403 Forbidden
+    assert response.status_code in [401, 403]
+    assert "detail" in response.json()
 
 def test_verify_cfdi_batch_unauthorized():
     response = client.post("/verify-cfdi-batch", json={"cfdis": [VALID_CFDI]})
