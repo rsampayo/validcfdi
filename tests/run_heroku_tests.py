@@ -7,13 +7,11 @@ import sys
 import subprocess
 import time
 import argparse
+import requests
+import json
 
 # Add parent directory to path so we can import the test modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Import heroku test modules directly to run their main function
-import tests.heroku.test_api
-import tests.heroku.test_admin
 
 # Define colors for output
 GREEN = '\033[0;32m'
@@ -54,7 +52,6 @@ def main():
     
     # First check if the Heroku app is accessible
     try:
-        import requests
         response = requests.get(f"{args.url}/health", timeout=5)
         if response.status_code != 200:
             print(f"{RED}Heroku app is not responding correctly. Check if the app is running.{NC}")
@@ -63,34 +60,139 @@ def main():
         print(f"{RED}Cannot connect to Heroku app: {e}{NC}")
         return 1
     
-    # Run the test modules directly
+    # Run API tests directly without using pytest fixtures
     print_header("Testing API Endpoints")
     try:
-        # Override sys.argv to avoid confusing the test module's argument parsing
-        sys.argv = [sys.argv[0], args.url]
-        tests.heroku.test_api.test_health_endpoint()
-        headers_val = tests.heroku.test_api.headers()
-        tests.heroku.test_api.test_verify_cfdi(headers_val)
-        tests.heroku.test_api.test_verify_cfdi_batch(headers_val)
-        tests.heroku.test_api.test_check_rfc_efos(headers_val)
-        tests.heroku.test_api.test_check_rfc_efos_batch(headers_val)
-        tests.heroku.test_api.test_unauthorized_access()
+        # Test health endpoint
+        print(f"\nTesting Health Endpoint on {args.url}...")
+        response = requests.get(f"{args.url}/health")
+        print(f"Status Code: {response.status_code}")
+        print(f"Response: {json.dumps(response.json(), indent=2)}")
+        assert response.status_code == 200
+        assert "status" in response.json()
+        
+        # Set up headers for authenticated requests
+        headers = {
+            "Authorization": f"Bearer {args.token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Test verify-cfdi endpoint
+        print(f"\nTesting Single CFDI Verification on {args.url}...")
+        test_data = {
+            "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+            "emisor_rfc": "CDZ050722LA9",
+            "receptor_rfc": "XIN06112344A",
+            "total": "12000.00"
+        }
+        response = requests.post(f"{args.url}/verify-cfdi", headers=headers, json=test_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "estado" in response.json()
+        
+        # Test verify-cfdi-batch endpoint
+        print(f"\nTesting Batch CFDI Verification on {args.url}...")
+        batch_data = {
+            "cfdis": [
+                {
+                    "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+                    "emisor_rfc": "CDZ050722LA9",
+                    "receptor_rfc": "XIN06112344A",
+                    "total": "12000.00"
+                },
+                {
+                    "uuid": "6128396f-c09b-4ec6-8699-43c5f7e3b230",
+                    "emisor_rfc": "CDZ050722LA9",
+                    "receptor_rfc": "XIN06112344A",
+                    "total": "12000.00"
+                }
+            ]
+        }
+        response = requests.post(f"{args.url}/verify-cfdi-batch", headers=headers, json=batch_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "results" in response.json()
+        
+        # Test check-rfc-efos endpoint
+        print(f"\nTesting RFC EFOS Check on {args.url}...")
+        rfc_data = {"rfc": "AAA100303L51"}
+        response = requests.post(f"{args.url}/check-rfc-efos", headers=headers, json=rfc_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "rfc" in response.json()
+        assert "is_in_efos_list" in response.json()
+        
+        # Test check-rfc-efos-batch endpoint
+        print(f"\nTesting Batch RFC EFOS Check on {args.url}...")
+        batch_rfc_data = {"rfcs": ["AAA100303L51", "AAA120730823", "AAA121206EV5"]}
+        response = requests.post(f"{args.url}/check-rfc-efos-batch", headers=headers, json=batch_rfc_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "results" in response.json()
+        
+        # Test unauthorized access
+        print(f"\nTesting Unauthorized Access on {args.url}...")
+        response = requests.post(f"{args.url}/verify-cfdi", json=test_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 401
+        assert "detail" in response.json()
+        assert response.json()["detail"] == "Not authenticated"
+        
         print(f"{GREEN}✅ API tests passed{NC}")
     except Exception as e:
         print(f"{RED}❌ API tests failed: {e}{NC}")
         return 1
     
+    # Run Admin tests
     print_header("Testing Admin Endpoints")
     try:
-        # Run admin tests
-        tests.heroku.test_admin.test_admin_list_tokens()
-        tests.heroku.test_admin.test_admin_efos_metadata()
+        import base64
+        # Set up admin headers with Basic auth
+        credentials = f"{args.admin_user}:{args.admin_password}"
+        encoded = base64.b64encode(credentials.encode()).decode()
+        admin_headers = {
+            "Authorization": f"Basic {encoded}",
+            "Content-Type": "application/json"
+        }
         
-        # Create, regenerate and delete a token
-        token_id = tests.heroku.test_admin.test_admin_create_token()
-        if token_id:
-            tests.heroku.test_admin.test_admin_regenerate_token(token_id)
-            tests.heroku.test_admin.test_admin_delete_token(token_id)
+        # Test admin/tokens endpoint
+        print(f"\nTesting Admin List Tokens on {args.url}...")
+        response = requests.get(f"{args.url}/admin/tokens", headers=admin_headers)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "tokens" in response.json()
+        
+        # Test admin/efos/metadata endpoint
+        print(f"\nTesting Admin EFOS Metadata on {args.url}...")
+        response = requests.get(f"{args.url}/admin/efos/metadata", headers=admin_headers)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        
+        # Test admin/tokens (create token) endpoint
+        print(f"\nTesting Admin Create Token on {args.url}...")
+        test_data = {"description": "Heroku Test Token"}
+        response = requests.post(f"{args.url}/admin/tokens", headers=admin_headers, json=test_data)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "token" in response.json()
+        assert "id" in response.json()
+        
+        # Get the token ID for subsequent tests
+        token_id = response.json()["id"]
+        
+        # Test regenerate token
+        print(f"\nTesting Admin Regenerate Token on {args.url}...")
+        response = requests.post(f"{args.url}/admin/tokens/{token_id}/regenerate", headers=admin_headers)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "token" in response.json()
+        
+        # Test delete token
+        print(f"\nTesting Admin Delete Token on {args.url}...")
+        response = requests.delete(f"{args.url}/admin/tokens/{token_id}", headers=admin_headers)
+        print(f"Status Code: {response.status_code}")
+        assert response.status_code == 200
+        assert "message" in response.json()
         
         print(f"{GREEN}✅ Admin tests passed{NC}")
     except Exception as e:

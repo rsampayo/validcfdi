@@ -69,9 +69,10 @@ if [ -z "$ADMIN_PASSWORD" ]; then
     ADMIN_PASSWORD="caragram"
 fi
 
-# Run the Python tests
+# Run the Python tests directly without using --url since it's causing issues
 echo -e "${YELLOW}Running Python tests against Heroku...${NC}"
-python tests/run_heroku_tests.py --url "$HEROKU_API_URL" --admin-user "$ADMIN_USERNAME" --admin-password "$ADMIN_PASSWORD"
+# Set the environment variables and run the tests
+HEROKU_API_URL="$HEROKU_API_URL" HEROKU_ADMIN_USERNAME="$ADMIN_USERNAME" HEROKU_ADMIN_PASSWORD="$ADMIN_PASSWORD" python tests/run_heroku_tests.py
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}All tests passed successfully!${NC}"
