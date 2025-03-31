@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd" Version="4.0" Serie="A" Folio="123456" Fecha="2023-08-15T12:34:56" FormaPago="99" MetodoPago="PUE" TipoDeComprobante="I" SubTotal="10000.00" Moneda="MXN" TipoCambio="1" Total="11600.00" LugarExpedicion="06700">
+  <cfdi:Emisor Rfc="CDZ050722LA9" Nombre="EMPRESA DEMO SA DE CV" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="XIN06112344A" Nombre="CLIENTE DEMO SA DE CV" DomicilioFiscalReceptor="01000" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="78101800" Cantidad="1" ClaveUnidad="E48" Unidad="Servicio" Descripcion="Servicio de consultoría" ValorUnitario="10000.00" Importe="10000.00" ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="10000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1600.00"/>
+        </cfdi:Traslados>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="1600.00">
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="10000.00" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1600.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" xsi:schemaLocation="http://www.sat.gob.mx/TimbreFiscalDigital http://www.sat.gob.mx/sitio_internet/cfd/TimbreFiscalDigital/TimbreFiscalDigitalv11.xsd" Version="1.1" UUID="6128396f-c09b-4ec6-8699-43c5f7e3b230" FechaTimbrado="2023-08-15T12:35:00" SelloCFD="WxT0TUa0I/B4qTD6D197QhqI7n4C9Jg+7VjH+2a+QqJj3Tt4I0Lc46FdCjfDH0Wk48XVNVhZ/uVHzg2O0WZJ1K5KRx0IXeqpPMg1kYYR7y3QyH+QXGjCMFVTEZKp+7zFYZ8e/QM7VCjZfJtPxPpnOyJxYsyIx/3s+QvlQ9b8lNY=" SelloSAT="KHCDXMoW20KBMUzJAT7jLLgfC7zS5HEfkJH0KHz2YP5SMQYwGBPXXDn3TeS5QPaCXJbFbLJ2aXDDK9tL5dPQEiubaE4jjTg4qZO5EUQ9FGo4ihC5/XvVK18+nWJ3ZCnrDnJz5W7s/eToJzYOH8WUSmqHvzQjkAnXBXFsEW3mJXw=" NoCertificadoSAT="00001000000504465028" RfcProvCertif="SCD110105654"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante> 
