@@ -3,7 +3,7 @@ import json
 import base64
 
 # API URL - replace with your actual URL (localhost for development)
-API_URL = "http://localhost:8001"
+API_URL = "http://localhost:8000"
 
 # Superadmin credentials
 ADMIN_USERNAME = "admin"
